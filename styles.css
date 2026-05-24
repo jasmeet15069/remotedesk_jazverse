@@ -693,7 +693,7 @@ body.viewer-focus .app-shell,
 body.viewer-focus .workspace {
   display: block;
   width: 100%;
-  height: 100dvh;
+  height: var(--rd-vh, 100dvh);
   overflow: hidden;
 }
 
@@ -702,10 +702,18 @@ body.viewer-focus .viewer {
   inset: 0;
   z-index: 1000;
   display: block;
-  height: 100dvh;
+  height: var(--rd-vh, 100dvh);
   width: 100vw;
   background: #050608;
   touch-action: none;
+  --fs-top: calc(env(safe-area-inset-top, 0px) + 48px);
+  --fs-bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+}
+
+.viewer:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #050608;
 }
 
 body.viewer-focus .viewer-toolbar {
@@ -723,16 +731,24 @@ body.viewer-focus .remote-screen {
   position: absolute;
   inset: 0;
   width: 100vw;
-  height: 100dvh;
-  min-height: 100dvh;
+  height: var(--rd-vh, 100dvh);
+  min-height: var(--rd-vh, 100dvh);
   touch-action: none;
 }
 
 body.viewer-focus .remote-video,
 body.viewer-focus .remote-frame {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--fs-top);
+  bottom: auto;
   width: 100%;
-  height: 100%;
+  height: calc(var(--rd-vh, 100dvh) - var(--fs-top) - var(--fs-bottom));
+  max-width: 100vw;
+  max-height: calc(var(--rd-vh, 100dvh) - var(--fs-top) - var(--fs-bottom));
   object-fit: contain;
+  object-position: center center;
   image-rendering: auto;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -847,6 +863,11 @@ body.viewer-focus .virtual-keyboard {
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
+  body.viewer-focus .viewer {
+    --fs-top: calc(env(safe-area-inset-top, 0px) + 42px);
+    --fs-bottom: calc(env(safe-area-inset-bottom, 0px) + 58px);
+  }
+
   body.viewer-focus .viewer-toolbar {
     min-height: 40px;
   }
@@ -896,6 +917,11 @@ body.viewer-focus .remote-screen::after {
 }
 
 @media (orientation: portrait) {
+  body.viewer-focus .viewer {
+    --fs-top: calc(env(safe-area-inset-top, 0px) + 48px);
+    --fs-bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
+  }
+
   body.viewer-focus .viewer-toolbar {
     min-height: 42px;
     padding: calc(env(safe-area-inset-top, 0px) + .25rem) .45rem .3rem;
@@ -935,6 +961,11 @@ body.viewer-focus .remote-screen::after {
 }
 
 @media (orientation: landscape) {
+  body.viewer-focus .viewer {
+    --fs-top: calc(env(safe-area-inset-top, 0px) + 44px);
+    --fs-bottom: calc(env(safe-area-inset-bottom, 0px) + 58px);
+  }
+
   body.viewer-focus .remote-video,
   body.viewer-focus .remote-frame {
     object-fit: contain;

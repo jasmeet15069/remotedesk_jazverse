@@ -434,10 +434,17 @@ function setViewerFocus(enabled) {
   renderIcons();
   if (enabled) {
     document.activeElement?.blur?.();
+    updateViewportHeight();
+    document.querySelector(".viewer")?.requestFullscreen?.().catch(() => {});
     screen.orientation?.lock?.("landscape").catch(() => {});
   } else {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     screen.orientation?.unlock?.();
   }
+}
+
+function updateViewportHeight() {
+  document.documentElement.style.setProperty("--rd-vh", `${window.innerHeight}px`);
 }
 
 $("fullscreenButton").addEventListener("click", () => {
@@ -449,6 +456,18 @@ document.addEventListener("keydown", (e) => {
     setViewerFocus(false);
   }
 });
+
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && document.body.classList.contains("viewer-focus")) {
+    document.body.classList.remove("viewer-focus");
+    $("fullscreenButton").innerHTML = '<i data-lucide="maximize"></i> Full screen';
+    renderIcons();
+  }
+  updateViewportHeight();
+});
+
+window.addEventListener("resize", updateViewportHeight);
+window.addEventListener("orientationchange", () => setTimeout(updateViewportHeight, 250));
 
 // ── Remote screen pointer events ──────────────────────────────────────────────
 let activePointerId = null;
@@ -769,6 +788,7 @@ viewScreenButton.addEventListener("click", () => {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 (async function init() {
+  updateViewportHeight();
   updateControls();
   connectWS();
 
