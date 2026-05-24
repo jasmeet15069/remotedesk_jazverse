@@ -3,6 +3,8 @@ $ErrorActionPreference = "Stop"
 $Server = "https://remotedesk.jazverse.online"
 $script:Code = ""
 $script:IsBusy = $false
+$script:SessionReady = $false
+$script:LastSessionCheck = [datetime]::MinValue
 $script:LastStatus = "Starting RemoteDesk Host..."
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -11,11 +13,17 @@ Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+public struct RemoteDeskPoint {
+  public int X;
+  public int Y;
+}
 public class RemoteDeskInput {
   [DllImport("user32.dll")]
   public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")]
-  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+  public static extern bool GetCursorPos(out RemoteDeskPoint lpPoint);
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, int dwData, UIntPtr dwExtraInfo);
 }
 "@
 
@@ -74,6 +82,12 @@ function Get-Session {
 }
 
 function Test-SessionReady {
+  if (((Get-Date) - $script:LastSessionCheck).TotalSeconds -lt 2) {
+    return $script:SessionReady
+  }
+  $script:LastSessionCheck = Get-Date
+  $script:SessionReady = $false
+
   $status = Get-Session
   if ($null -eq $status) {
     return $false
@@ -92,6 +106,7 @@ function Test-SessionReady {
     $script:LastStatus = "Share screen is off. Enable it and approve again."
     return $false
   }
+  $script:SessionReady = $true
   return $true
 }
 
@@ -108,7 +123,7 @@ function Capture-Frame {
   $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
   try {
     $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
-    $maxWidth = 960
+    $maxWidth = 720
     if ($bitmap.Width -gt $maxWidth) {
       $scale = $maxWidth / $bitmap.Width
       $targetWidth = [int]($bitmap.Width * $scale)
@@ -141,14 +156,67 @@ function Capture-Frame {
   }
 }
 
-function Send-Click($X, $Y) {
+function Move-Mouse($X, $Y) {
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
   $screenX = [int]($bounds.Left + ($bounds.Width * [double]$X))
   $screenY = [int]($bounds.Top + ($bounds.Height * [double]$Y))
   [RemoteDeskInput]::SetCursorPos($screenX, $screenY) | Out-Null
+}
+
+function Move-MouseDelta($DX, $DY) {
+  $point = New-Object RemoteDeskPoint
+  if ([RemoteDeskInput]::GetCursorPos([ref]$point)) {
+    $scale = 1.6
+    $screenX = [int]($point.X + ([double]$DX * $scale))
+    $screenY = [int]($point.Y + ([double]$DY * $scale))
+    [RemoteDeskInput]::SetCursorPos($screenX, $screenY) | Out-Null
+  }
+}
+
+function Send-MouseDown($X, $Y) {
+  Move-Mouse $X $Y
+  [RemoteDeskInput]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Send-MouseUp($X, $Y) {
+  Move-Mouse $X $Y
+  [RemoteDeskInput]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Send-Click($X, $Y) {
+  Send-MouseDown $X $Y
+  Start-Sleep -Milliseconds 40
+  Send-MouseUp $X $Y
+}
+
+function Send-LeftClickCurrent {
   [RemoteDeskInput]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
   Start-Sleep -Milliseconds 40
   [RemoteDeskInput]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Send-RightClickCurrent {
+  [RemoteDeskInput]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [RemoteDeskInput]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Send-Scroll($X, $Y, $DeltaY) {
+  Move-Mouse $X $Y
+  $wheel = 0
+  if ([double]$DeltaY -gt 0) { $wheel = -120 }
+  if ([double]$DeltaY -lt 0) { $wheel = 120 }
+  if ($wheel -ne 0) {
+    [RemoteDeskInput]::mouse_event(0x0800, 0, 0, $wheel, [UIntPtr]::Zero)
+  }
+}
+
+function Escape-SendKeysText($Text) {
+  $escaped = [string]$Text
+  foreach ($ch in @('{', '}', '+', '^', '%', '~', '(', ')', '[', ']')) {
+    $escaped = $escaped.Replace($ch, "{$ch}")
+  }
+  return $escaped
 }
 
 function Send-Key($Key) {
@@ -170,13 +238,45 @@ function Poll-Commands {
     $encoded = [Uri]::EscapeDataString($script:Code)
     $result = Invoke-RestMethod -Uri "$Server/api/control/poll?code=$encoded" -Method Get
     foreach ($command in $result.commands) {
+      if ($command.type -eq "mouseMove") {
+        Move-Mouse $command.x $command.y
+        $script:LastStatus = "Mouse move received at " + (Get-Date -Format "HH:mm:ss")
+      }
+      if ($command.type -eq "mouseDelta") {
+        Move-MouseDelta $command.dx $command.dy
+        $script:LastStatus = "Touchpad move received at " + (Get-Date -Format "HH:mm:ss")
+      }
+      if ($command.type -eq "mouseDown") {
+        Send-MouseDown $command.x $command.y
+        $script:LastStatus = "Mouse down received at " + (Get-Date -Format "HH:mm:ss")
+      }
+      if ($command.type -eq "mouseUp") {
+        Send-MouseUp $command.x $command.y
+        $script:LastStatus = "Mouse up received at " + (Get-Date -Format "HH:mm:ss")
+      }
       if ($command.type -eq "click") {
         Send-Click $command.x $command.y
         $script:LastStatus = "Mouse click received at " + (Get-Date -Format "HH:mm:ss")
       }
+      if ($command.type -eq "leftClick") {
+        Send-LeftClickCurrent
+        $script:LastStatus = "Left click received at " + (Get-Date -Format "HH:mm:ss")
+      }
+      if ($command.type -eq "rightClick") {
+        Send-RightClickCurrent
+        $script:LastStatus = "Right click received at " + (Get-Date -Format "HH:mm:ss")
+      }
+      if ($command.type -eq "scroll") {
+        Send-Scroll $command.x $command.y $command.deltaY
+        $script:LastStatus = "Scroll received at " + (Get-Date -Format "HH:mm:ss")
+      }
       if ($command.type -eq "key") {
         Send-Key $command.key
         $script:LastStatus = "Key received: " + $command.key
+      }
+      if ($command.type -eq "text") {
+        [System.Windows.Forms.SendKeys]::SendWait((Escape-SendKeysText $command.text))
+        $script:LastStatus = "Text received at " + (Get-Date -Format "HH:mm:ss")
       }
     }
   } catch {
@@ -202,7 +302,6 @@ function Send-FrameTick {
     } | ConvertTo-Json -Compress
 
     Invoke-RestMethod -Uri "$Server/api/screen/frame" -Method Post -ContentType "application/json" -Body $payload | Out-Null
-    Poll-Commands
     $script:LastStatus = "Sharing live at " + (Get-Date -Format "HH:mm:ss")
   } catch {
     $script:LastStatus = "Sharing issue: " + $_.Exception.Message
@@ -242,11 +341,17 @@ $notify.ContextMenuStrip = $menu
 $notify.ShowBalloonTip(2500, "RemoteDesk Host", "Running in the system tray. Right-click the tray icon to stop.", [System.Windows.Forms.ToolTipIcon]::Info)
 
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval = 350
+$timer.Interval = 180
 $timer.Add_Tick({ Send-FrameTick })
 $timer.Start()
 
+$controlTimer = New-Object System.Windows.Forms.Timer
+$controlTimer.Interval = 80
+$controlTimer.Add_Tick({ Poll-Commands })
+$controlTimer.Start()
+
 [System.Windows.Forms.Application]::Run()
+$controlTimer.Stop()
 $timer.Stop()
 Send-Stop
 $notify.Dispose()

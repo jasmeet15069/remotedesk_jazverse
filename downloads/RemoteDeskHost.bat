@@ -1,3 +1,21 @@
+@echo off
+setlocal
+set "RD_BAT=%~f0"
+set "RD_TMP=%TEMP%\RemoteDeskHost-%RANDOM%%RANDOM%.ps1"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$marker='###REMOTE_DESK_PS1###'; $text=[IO.File]::ReadAllText($env:RD_BAT); $idx=$text.IndexOf($marker); if($idx -lt 0){throw 'RemoteDesk payload missing'}; $payload=$text.Substring($idx + $marker.Length).TrimStart([char]13,[char]10); [IO.File]::WriteAllText($env:RD_TMP, $payload, [Text.UTF8Encoding]::new($false))"
+if errorlevel 1 (
+  echo RemoteDesk could not prepare the host helper.
+  pause
+  exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%RD_TMP%"
+set "RD_EXIT=%ERRORLEVEL%"
+del "%RD_TMP%" >nul 2>nul
+exit /b %RD_EXIT%
+
+###REMOTE_DESK_PS1###
 $ErrorActionPreference = "Stop"
 
 $Server = "https://remotedesk.jazverse.online"

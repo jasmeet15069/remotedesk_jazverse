@@ -1,97 +1,165 @@
+"use strict";
+
+// ── State ─────────────────────────────────────────────────────────────────────
 const state = {
-  code: "739 184",
+  code: "--- ---",
   approved: false,
   joinRequested: false,
   revoked: false,
   serverBacked: false,
-  permissions: {
-    screen: true,
-    mouse: false,
-    keyboard: false,
-    files: false,
-  },
+  targetFps: 30,
+  permissions: { screen: true, mouse: false, keyboard: false, files: false },
 };
 
-const sessionCode = document.querySelector("#sessionCode");
-const joinCode = document.querySelector("#joinCode");
-const connectionStatus = document.querySelector("#connectionStatus");
-const remoteScreen = document.querySelector("#remoteScreen");
-const auditLog = document.querySelector("#auditLog");
-const permissionForm = document.querySelector("#permissionForm");
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const sessionCode    = $("sessionCode");
+const joinCode       = $("joinCode");
+const connectionStatus = $("connectionStatus");
+const remoteScreen   = $("remoteScreen");
+const auditLog       = $("auditLog");
+const permissionForm = $("permissionForm");
+const viewScreenButton  = $("viewScreenButton");
+const remoteVideo    = $("remoteVideo");
+const remoteFrame    = $("remoteFrame");
 const controlButtons = [...document.querySelectorAll(".tool")];
 const keyboardButtons = [...document.querySelectorAll(".virtual-keyboard button")];
-const touchpad = document.querySelector("#touchpad");
-const shareScreenButton = document.querySelector("#shareScreenButton");
-const viewScreenButton = document.querySelector("#viewScreenButton");
-const remoteVideo = document.querySelector("#remoteVideo");
-const remoteFrame = document.querySelector("#remoteFrame");
-let lastServerStatus = "";
-let peerConnection = null;
-let signalPollTimer = null;
-let frameRelayTimer = null;
-let framePollTimer = null;
-let hostCandidateCount = 0;
-let viewerCandidateCount = 0;
-let latestScreenSize = { width: 0, height: 0 };
+const textInput      = $("textInput");
+const touchpad       = $("touchpad");
+const leftClickButton = $("leftClickButton");
+const rightClickButton = $("rightClickButton");
+const leftClickPadButton = $("leftClickPadButton");
+const rightClickPadButton = $("rightClickPadButton");
+const fpsRange = $("fpsRange");
+const fpsLabel = $("fpsLabel");
 
-const rtcConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+let ws = null;
+let wsReady = false;
+let wsRole = "all";
+let reconnectDelay = 1000;
 
-function renderIcons() {
-  if (window.lucide) {
-    window.lucide.createIcons();
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws?role=${wsRole}`);
+
+  ws.addEventListener("open", () => {
+    wsReady = true;
+    reconnectDelay = 1000;
+  });
+
+  ws.addEventListener("message", (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    handleWsMsg(msg);
+  });
+
+  ws.addEventListener("close", () => {
+    wsReady = false;
+    setTimeout(connectWS, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+  });
+
+  ws.addEventListener("error", () => ws.close());
+}
+
+function wsSend(data) {
+  if (wsReady && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+    return true;
   }
+  return false;
+}
+
+function handleWsMsg(msg) {
+  switch (msg.type) {
+    case "init":
+    case "session_update":
+      applySession(msg.session);
+      if (msg.status) applyStatus(msg.status);
+      if (msg.rtc) pendingRtc = msg.rtc;
+      if (peerConnection && msg.rtc) processPendingRtc(msg.rtc);
+      break;
+
+    case "fps_update":
+      applyStatus({ targetFps: msg.fps });
+      break;
+
+    case "signal":
+      pendingRtc = msg.rtc;
+      if (peerConnection) processPendingRtc(msg.rtc);
+      break;
+
+    case "control":
+      // Host agent receives this; browser side just acknowledges
+      break;
+  }
+}
+
+// ── REST helper ───────────────────────────────────────────────────────────────
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function renderIcons() {
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function addAudit(title, detail) {
   const item = document.createElement("li");
-  const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  item.innerHTML = `<strong>${title}</strong>${detail} - ${time}`;
+  const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  item.innerHTML = `<strong>${title}</strong>${detail ? ` — ${detail}` : ""} <em>${t}</em>`;
   auditLog.prepend(item);
+  // Trim to last 60 entries
+  while (auditLog.children.length > 60) auditLog.removeChild(auditLog.lastChild);
 }
 
 function setStatus(kind, label, icon) {
-  connectionStatus.className = `status-pill ${kind}`;
+  connectionStatus.className = `status-pill ${kind}`.trim();
   connectionStatus.innerHTML = `<i data-lucide="${icon}"></i><span>${label}</span>`;
   renderIcons();
 }
 
 function readPermissions() {
-  const data = new FormData(permissionForm);
+  const fd = new FormData(permissionForm);
   state.permissions = {
-    screen: data.has("screen"),
-    mouse: data.has("mouse"),
-    keyboard: data.has("keyboard"),
-    files: data.has("files"),
+    screen:   fd.has("screen"),
+    mouse:    fd.has("mouse"),
+    keyboard: fd.has("keyboard"),
+    files:    fd.has("files"),
   };
 }
 
 function applySession(session) {
-  state.code = session.code || state.code;
-  state.approved = Boolean(session.approved);
+  if (!session) return;
+  state.code          = session.code        || state.code;
+  state.approved      = Boolean(session.approved);
   state.joinRequested = Boolean(session.joinRequested);
-  state.revoked = Boolean(session.revoked);
-  state.permissions = { ...state.permissions, ...(session.permissions || {}) };
+  state.revoked       = Boolean(session.revoked);
+  state.permissions   = { ...state.permissions, ...(session.permissions || {}) };
 
   sessionCode.textContent = state.code;
-  if (document.activeElement !== joinCode) {
-    joinCode.value = state.code;
-  }
+  if (document.activeElement !== joinCode) joinCode.value = state.code;
 
   if (state.approved || state.revoked) {
     Object.entries(state.permissions).forEach(([name, enabled]) => {
-      const input = permissionForm.querySelector(`[name="${name}"]`);
-      if (input) {
-        input.checked = enabled;
-      }
+      const inp = permissionForm.querySelector(`[name="${name}"]`);
+      if (inp) inp.checked = enabled;
     });
   }
 
   if (state.approved) {
     setStatus("connected", "Session approved", "radio-tower");
+    if (state.permissions.screen && !framePollTimer) startFrameViewer(false);
   } else if (state.joinRequested) {
-    setStatus("", "Mobile waiting", "badge-check");
+    setStatus("pending", "Mobile waiting", "badge-check");
   } else if (state.revoked) {
     setStatus("revoked", "Access revoked", "octagon-x");
   } else {
@@ -101,440 +169,511 @@ function applySession(session) {
   updateControls();
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Request failed");
-  }
-  return data;
-}
-
-async function sendControl(command) {
-  if (!state.approved) {
-    addAudit("Control blocked", "Approve the session before controlling the host");
-    return;
-  }
-
-  try {
-    await api("/api/control", {
-      method: "POST",
-      body: JSON.stringify({ code: state.code, ...command }),
-    });
-  } catch (error) {
-    addAudit("Control failed", error.message);
-  }
-}
-
-async function refreshSession() {
-  try {
-    const data = await api("/api/session");
-    state.serverBacked = true;
-    applySession(data.session);
-
-    if (state.approved && state.permissions.screen && !framePollTimer) {
-      startFrameViewer(false);
-    }
-
-    const status = JSON.stringify({
-      approved: state.approved,
-      joinRequested: state.joinRequested,
-      revoked: state.revoked,
-      code: state.code,
-    });
-    if (status !== lastServerStatus) {
-      lastServerStatus = status;
-      if (state.joinRequested && !state.approved) {
-        addAudit("Mobile join request", "Approve the session on the computer");
-      }
-      if (state.approved) {
-        addAudit("Session synced", "Mobile and computer are connected through the server");
-      }
-    }
-  } catch (error) {
-    state.serverBacked = false;
-  }
+function applyStatus(status) {
+  if (!status) return;
+  state.targetFps = Number(status.targetFps || state.targetFps || 30);
+  if (fpsRange) fpsRange.value = String(state.targetFps);
+  if (fpsLabel) fpsLabel.textContent = String(state.targetFps);
 }
 
 function updateControls() {
   remoteScreen.classList.toggle("connected", state.approved && state.permissions.screen);
 
-  controlButtons.forEach((button) => {
-    const action = button.dataset.action;
+  controlButtons.forEach((btn) => {
+    const action = btn.dataset.action;
     const allowed = action === "call" || Boolean(state.permissions[action]);
-    button.disabled = !state.approved || !allowed;
-    button.classList.toggle("allowed", state.approved && allowed);
+    btn.disabled = !state.approved || !allowed;
+    btn.classList.toggle("allowed", state.approved && allowed);
   });
 
-  keyboardButtons.forEach((button) => {
-    button.disabled = !state.approved || !state.permissions.keyboard;
+  keyboardButtons.forEach((btn) => {
+    btn.disabled = !state.approved || !state.permissions.keyboard;
+  });
+  if (textInput) textInput.disabled = !state.approved || !state.permissions.keyboard;
+  [leftClickPadButton, rightClickPadButton].forEach((btn) => {
+    if (btn) btn.disabled = !state.approved || !state.permissions.mouse;
   });
 
-  shareScreenButton.disabled = !state.approved || !state.permissions.screen;
-  viewScreenButton.disabled = !state.approved || !state.permissions.screen;
+  viewScreenButton.disabled  = !state.approved || !state.permissions.screen;
 }
 
-async function generateCode() {
-  if (state.serverBacked) {
-    try {
-      const data = await api("/api/session/new", { method: "POST", body: "{}" });
-      applySession(data.session);
-      addAudit("New code generated", "Server session reset for mobile connection");
-      return;
-    } catch (error) {
-      addAudit("Server sync failed", error.message);
-    }
-  }
+// ── Control delivery ──────────────────────────────────────────────────────────
+async function sendControl(command) {
+  if (!state.approved) return;
 
-  const digits = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10)).join("");
-  state.code = `${digits.slice(0, 3)} ${digits.slice(3)}`;
-  state.approved = false;
-  sessionCode.textContent = state.code;
-  joinCode.value = "";
-  setStatus("", "Waiting for consent", "shield-check");
-  updateControls();
-  addAudit("New code generated", "Previous session invalidated");
+  // WebSocket path (fastest — skips HTTP overhead)
+  const sent = wsSend({ type: "control", code: state.code, command });
+  if (sent) return;
+
+  // HTTP fallback
+  try {
+    await api("/api/control", {
+      method: "POST",
+      body: JSON.stringify({ code: state.code, ...command }),
+    });
+  } catch (err) {
+    addAudit("Control failed", err.message);
+  }
 }
 
-document.querySelector("#newCodeButton").addEventListener("click", generateCode);
+// ── Session buttons ───────────────────────────────────────────────────────────
+$("newCodeButton").addEventListener("click", async () => {
+  try {
+    const d = await api("/api/session/new", { method: "POST", body: "{}" });
+    applySession(d.session);
+    stopFrameTimers();
+    closePeerConnection();
+    remoteFrame.removeAttribute("src");
+    remoteScreen.classList.remove("live", "frame-live");
+    addAudit("New code", "Previous session invalidated");
+  } catch (err) { addAudit("Error", err.message); }
+});
 
-document.querySelector("#joinButton").addEventListener("click", async () => {
-  const normalizedInput = joinCode.value.replace(/\s/g, "");
-  const normalizedCode = state.code.replace(/\s/g, "");
-
-  if (state.serverBacked) {
-    try {
-      const data = await api("/api/session/join", {
-        method: "POST",
-        body: JSON.stringify({ code: joinCode.value }),
-      });
-      applySession(data.session);
-      addAudit("Join request sent", "Approve the session on the computer");
-      return;
-    } catch (error) {
-      state.approved = false;
-      setStatus("revoked", "Code rejected", "triangle-alert");
-      updateControls();
-      addAudit("Connection denied", error.message);
-      return;
-    }
-  }
-
-  if (normalizedInput !== normalizedCode) {
+$("joinButton").addEventListener("click", async () => {
+  try {
+    const d = await api("/api/session/join", {
+      method: "POST",
+      body: JSON.stringify({ code: joinCode.value }),
+    });
+    applySession(d.session);
+    addAudit("Join request sent", "Awaiting host approval");
+  } catch (err) {
     state.approved = false;
     setStatus("revoked", "Code rejected", "triangle-alert");
     updateControls();
-    addAudit("Connection denied", "The entered one-time code did not match");
-    return;
+    addAudit("Denied", err.message);
   }
-
-  setStatus("", "Code verified", "badge-check");
-  addAudit("Join request received", "Computer approval is still required");
 });
 
-document.querySelector("#approveButton").addEventListener("click", async () => {
+$("approveButton").addEventListener("click", async () => {
   readPermissions();
+  try {
+    const d = await api("/api/session/approve", {
+      method: "POST",
+      body: JSON.stringify({ permissions: state.permissions }),
+    });
+    applySession(d.session);
+    const allowed = Object.entries(state.permissions).filter(([, v]) => v).map(([k]) => k).join(", ");
+    addAudit("Session approved", `Permissions: ${allowed || "none"}`);
+  } catch (err) { addAudit("Approve failed", err.message); }
+});
 
-  if (state.serverBacked) {
+$("revokeButton").addEventListener("click", async () => {
+  try {
+    const d = await api("/api/session/revoke", { method: "POST", body: "{}" });
+    applySession(d.session);
+    stopFrameTimers();
+    closePeerConnection();
+    remoteFrame.removeAttribute("src");
+    remoteScreen.classList.remove("live", "frame-live");
+    addAudit("Access revoked", "Session ended");
+  } catch (err) { addAudit("Revoke failed", err.message); }
+});
+
+permissionForm.addEventListener("change", async () => {
+  readPermissions();
+  updateControls();
+  if (state.approved) {
     try {
-      const data = await api("/api/session/approve", {
+      await api("/api/session/approve", {
         method: "POST",
         body: JSON.stringify({ permissions: state.permissions }),
       });
-      applySession(data.session);
-      const allowed = Object.entries(state.permissions)
-        .filter(([, enabled]) => enabled)
-        .map(([name]) => name)
-        .join(", ");
-      addAudit("Session approved", `Allowed permissions: ${allowed || "none"}`);
-      return;
-    } catch (error) {
-      addAudit("Approval failed", error.message);
-    }
+    } catch {}
   }
-
-  state.approved = true;
-  setStatus("connected", "Session approved", "radio-tower");
-  updateControls();
-  const allowed = Object.entries(state.permissions)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name)
-    .join(", ");
-  addAudit("Session approved", `Allowed permissions: ${allowed || "none"}`);
+  const active = Object.entries(state.permissions).filter(([,v]) => v).map(([k]) => k).join(", ");
+  addAudit("Permissions", active || "none");
 });
 
-document.querySelector("#revokeButton").addEventListener("click", async () => {
-  if (state.serverBacked) {
-    try {
-      const data = await api("/api/session/revoke", { method: "POST", body: "{}" });
-      applySession(data.session);
-      addAudit("Access revoked", "The computer ended the remote session");
-      return;
-    } catch (error) {
-      addAudit("Revoke failed", error.message);
-    }
-  }
-
-  state.approved = false;
-  setStatus("revoked", "Access revoked", "octagon-x");
-  updateControls();
-  addAudit("Access revoked", "The computer ended the remote session");
+let fpsTimer = null;
+fpsRange?.addEventListener("input", () => {
+  const fps = Number(fpsRange.value || 30);
+  state.targetFps = fps;
+  if (fpsLabel) fpsLabel.textContent = String(fps);
+  clearTimeout(fpsTimer);
+  fpsTimer = setTimeout(() => wsSend({ type: "set_fps", fps }), 250);
 });
 
-permissionForm.addEventListener("change", () => {
-  readPermissions();
-  updateControls();
-  addAudit("Permissions updated", "The computer changed what the helper can do");
-});
-
-controlButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (button.id === "viewScreenButton") {
+// ── Tool buttons ──────────────────────────────────────────────────────────────
+controlButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.id === "viewScreenButton") return;
+    const action = btn.dataset.action;
+    if (btn.id === "leftClickButton") {
+      sendControl({ type: "leftClick" });
+      addAudit("Left click", "Sent to host agent");
       return;
     }
-
-    const label = button.textContent.trim();
-    addAudit(`${label} control used`, "Action queued for the approved host agent");
+    if (btn.id === "rightClickButton") {
+      sendControl({ type: "rightClick" });
+      addAudit("Right click", "Sent to host agent");
+      return;
+    }
+    if (action === "keyboard") {
+      if (!state.approved || !state.permissions.keyboard) {
+        addAudit("Blocked", "Keyboard input not approved");
+        return;
+      }
+      textInput?.focus({ preventScroll: true });
+    }
+    if (btn.id === "mousePadButton") {
+      touchpad?.classList.add("hint");
+      setTimeout(() => touchpad?.classList.remove("hint"), 450);
+    }
+    const label = btn.querySelector("span")?.textContent || "";
+    addAudit(`${label} control`, "Ready");
   });
 });
 
-keyboardButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (state.permissions.keyboard) {
-      sendControl({ type: "key", key: button.dataset.key });
-    }
-    addAudit("Keyboard input queued", `${button.dataset.key} sent to approved host agent`);
+keyboardButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!state.permissions.keyboard) return;
+    sendControl({ type: "key", key: btn.dataset.key });
+    addAudit("Key", btn.dataset.key);
+    textInput?.focus({ preventScroll: true });
   });
 });
 
-touchpad.addEventListener("pointerdown", (event) => {
+function sendMouseButton(button) {
   if (!state.approved || !state.permissions.mouse) {
-    addAudit("Touch blocked", "Mouse control is not approved by the computer");
+    addAudit("Blocked", "Mouse control not approved");
     return;
   }
+  sendControl({ type: button === "right" ? "rightClick" : "leftClick" });
+  addAudit(button === "right" ? "Right click" : "Left click", "Sent to host agent");
+}
 
+leftClickPadButton?.addEventListener("click", () => sendMouseButton("left"));
+rightClickPadButton?.addEventListener("click", () => sendMouseButton("right"));
+
+if (textInput) {
+  textInput.addEventListener("beforeinput", (e) => {
+    if (!state.approved || !state.permissions.keyboard) return;
+    if (e.inputType === "insertText" && e.data) {
+      e.preventDefault();
+      sendControl({ type: "text", text: e.data });
+      textInput.value = "";
+    }
+  });
+
+  textInput.addEventListener("input", () => {
+    if (!state.approved || !state.permissions.keyboard || !textInput.value) return;
+    sendControl({ type: "text", text: textInput.value });
+    textInput.value = "";
+  });
+
+  textInput.addEventListener("keydown", (e) => {
+    if (!state.approved || !state.permissions.keyboard) return;
+    const keyMap = { Enter: "Enter", Backspace: "Backspace", Escape: "Esc", Tab: "Tab" };
+    if (keyMap[e.key]) {
+      e.preventDefault();
+      sendControl({ type: "key", key: keyMap[e.key] });
+      textInput.value = "";
+    }
+  });
+}
+
+// ── Touchpad ──────────────────────────────────────────────────────────────────
+let touchpadPointerId = null;
+let touchpadLast = null;
+let touchpadLastSent = 0;
+let touchpadMoved = false;
+
+function canUseTouchpad() {
+  if (!state.approved || !state.permissions.mouse) {
+    addAudit("Blocked", "Mouse control not approved");
+    return false;
+  }
+  return true;
+}
+
+touchpad.addEventListener("pointerdown", (e) => {
+  if (!canUseTouchpad()) return;
+  e.preventDefault();
+  touchpadPointerId = e.pointerId;
+  touchpadLast = { x: e.clientX, y: e.clientY };
+  touchpadMoved = false;
   touchpad.classList.add("active");
-  touchpad.setPointerCapture(event.pointerId);
-  addAudit("Touch control started", `Pointer at ${Math.round(event.offsetX)}, ${Math.round(event.offsetY)}`);
+  touchpad.setPointerCapture(e.pointerId);
 });
 
-touchpad.addEventListener("pointerup", () => {
+touchpad.addEventListener("pointermove", (e) => {
+  if (touchpadPointerId !== e.pointerId || !touchpadLast) return;
+  e.preventDefault();
+  const now = Date.now();
+  const dx = e.clientX - touchpadLast.x;
+  const dy = e.clientY - touchpadLast.y;
+  touchpadLast = { x: e.clientX, y: e.clientY };
+  if (Math.abs(dx) + Math.abs(dy) < 1 || now - touchpadLastSent < 24) return;
+  touchpadMoved = true;
+  touchpadLastSent = now;
+  sendControl({ type: "mouseDelta", dx, dy });
+});
+
+touchpad.addEventListener("pointerup", (e) => {
+  if (touchpadPointerId !== e.pointerId) return;
+  e.preventDefault();
+  touchpad.releasePointerCapture?.(e.pointerId);
   touchpad.classList.remove("active");
+  touchpadPointerId = null;
+  touchpadLast = null;
 });
 
-document.querySelector("#fullscreenButton").addEventListener("click", async () => {
-  const target = document.querySelector(".viewer");
-  document.body.classList.toggle("viewer-focus");
-
-  if (target.requestFullscreen && !document.fullscreenElement) {
-    try {
-      await target.requestFullscreen();
-    } catch (error) {
-      addAudit("Full screen fallback", "Using mobile viewer mode");
-    }
-  }
-
-  addAudit("Viewer mode toggled", "Remote viewer expanded on this device");
+touchpad.addEventListener("pointercancel", () => {
+  touchpad.classList.remove("active");
+  touchpadPointerId = null;
+  touchpadLast = null;
 });
 
-document.addEventListener("fullscreenchange", () => {
-  if (!document.fullscreenElement && document.body.classList.contains("viewer-focus")) {
-    document.body.classList.remove("viewer-focus");
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+function setViewerFocus(enabled) {
+  document.body.classList.toggle("viewer-focus", enabled);
+  $("fullscreenButton").innerHTML = enabled
+    ? '<i data-lucide="minimize"></i> Exit full screen'
+    : '<i data-lucide="maximize"></i> Full screen';
+  renderIcons();
+  if (enabled) {
+    document.activeElement?.blur?.();
+    screen.orientation?.lock?.("landscape").catch(() => {});
+  } else {
+    screen.orientation?.unlock?.();
+  }
+}
+
+$("fullscreenButton").addEventListener("click", () => {
+  setViewerFocus(!document.body.classList.contains("viewer-focus"));
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && document.body.classList.contains("viewer-focus")) {
+    setViewerFocus(false);
   }
 });
 
-function closePeerConnection() {
-  if (signalPollTimer) {
-    clearInterval(signalPollTimer);
-    signalPollTimer = null;
-  }
+// ── Remote screen pointer events ──────────────────────────────────────────────
+let activePointerId = null;
+let lastMoveSent = 0;
+let latestScreenSize = { width: 0, height: 0 };
 
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
-}
-
-function stopFrameTimers() {
-  if (frameRelayTimer) {
-    clearInterval(frameRelayTimer);
-    frameRelayTimer = null;
-  }
-  if (framePollTimer) {
-    clearInterval(framePollTimer);
-    framePollTimer = null;
-  }
-}
-
-async function postFrame(image) {
-  return api("/api/screen/frame", {
-    method: "POST",
-    body: JSON.stringify({ code: state.code, image }),
-  });
-}
-
-function startFrameRelay(stream) {
-  const sourceVideo = document.createElement("video");
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d", { alpha: false });
-
-  sourceVideo.srcObject = stream;
-  sourceVideo.muted = true;
-  sourceVideo.playsInline = true;
-  sourceVideo.play().catch(() => {});
-
-  frameRelayTimer = setInterval(async () => {
-    if (!sourceVideo.videoWidth || !sourceVideo.videoHeight) {
-      return;
-    }
-
-    const maxWidth = 960;
-    const scale = Math.min(1, maxWidth / sourceVideo.videoWidth);
-    canvas.width = Math.round(sourceVideo.videoWidth * scale);
-    canvas.height = Math.round(sourceVideo.videoHeight * scale);
-    context.drawImage(sourceVideo, 0, 0, canvas.width, canvas.height);
-
-    try {
-      await postFrame(canvas.toDataURL("image/jpeg", 0.58));
-    } catch (error) {
-      addAudit("Frame relay failed", error.message);
-    }
-  }, 350);
-}
-
-async function displayLatestFrame(logWhenWaiting = true) {
-  try {
-    const data = await api("/api/screen");
-    const screen = data.screen || {};
-    if (screen.active && screen.image) {
-      latestScreenSize = {
-        width: Number(screen.width || 0),
-        height: Number(screen.height || 0),
-      };
-      remoteFrame.src = screen.image;
-      remoteScreen.classList.add("frame-live");
-      return true;
-    }
-
-    if (logWhenWaiting) {
-      addAudit("Live preview waiting", "No frames have arrived from the host agent yet");
-    }
-    return false;
-  } catch (error) {
-    addAudit("Live preview failed", error.message);
-    return false;
-  }
-}
-
-function startFrameViewer(logWhenWaiting = true) {
-  if (framePollTimer) {
-    return;
-  }
-
-  displayLatestFrame(logWhenWaiting);
-  framePollTimer = setInterval(() => {
-    displayLatestFrame(false);
-  }, 350);
-}
-
-remoteScreen.addEventListener("pointerdown", (event) => {
-  if (!state.approved || !state.permissions.mouse) {
-    return;
-  }
-  if (!remoteScreen.classList.contains("frame-live") && !remoteScreen.classList.contains("live")) {
-    return;
-  }
+function pointerToRemote(e) {
+  if (!state.approved || !state.permissions.mouse) return null;
+  if (!remoteScreen.classList.contains("frame-live") && !remoteScreen.classList.contains("live")) return null;
 
   const target = remoteFrame.getAttribute("src") ? remoteFrame : remoteScreen;
   const rect = target.getBoundingClientRect();
-  let activeLeft = rect.left;
-  let activeTop = rect.top;
-  let activeWidth = rect.width;
-  let activeHeight = rect.height;
+  let aL = rect.left, aT = rect.top, aW = rect.width, aH = rect.height;
 
   if (latestScreenSize.width > 0 && latestScreenSize.height > 0) {
-    const imageRatio = latestScreenSize.width / latestScreenSize.height;
-    const boxRatio = rect.width / rect.height;
-    if (boxRatio > imageRatio) {
-      activeHeight = rect.height;
-      activeWidth = activeHeight * imageRatio;
-      activeLeft = rect.left + (rect.width - activeWidth) / 2;
+    const ir = latestScreenSize.width / latestScreenSize.height;
+    const br = rect.width / rect.height;
+    if (br > ir) {
+      aH = rect.height; aW = aH * ir; aL = rect.left + (rect.width - aW) / 2;
     } else {
-      activeWidth = rect.width;
-      activeHeight = activeWidth / imageRatio;
-      activeTop = rect.top + (rect.height - activeHeight) / 2;
+      aW = rect.width; aH = aW / ir; aT = rect.top + (rect.height - aH) / 2;
     }
   }
 
-  const x = (event.clientX - activeLeft) / activeWidth;
-  const y = (event.clientY - activeTop) / activeHeight;
+  const x = (e.clientX - aL) / aW;
+  const y = (e.clientY - aT) / aH;
+  return (x < 0 || x > 1 || y < 0 || y > 1) ? null : { x, y };
+}
 
-  if (x < 0 || x > 1 || y < 0 || y > 1) {
-    return;
-  }
-
-  sendControl({ type: "click", x, y });
-  addAudit("Mouse click sent", `Screen position ${Math.round(x * 100)}%, ${Math.round(y * 100)}%`);
+remoteScreen.addEventListener("pointerdown", (e) => {
+  const p = pointerToRemote(e);
+  if (!p) return;
+  e.preventDefault();
+  activePointerId = e.pointerId;
+  remoteScreen.setPointerCapture?.(e.pointerId);
+  sendControl({ type: "mouseDown", ...p });
 });
 
+remoteScreen.addEventListener("pointermove", (e) => {
+  if (activePointerId !== e.pointerId) return;
+  const now = Date.now();
+  if (now - lastMoveSent < 28) return; // ~35fps max for mouse moves
+  const p = pointerToRemote(e);
+  if (!p) return;
+  e.preventDefault();
+  lastMoveSent = now;
+  sendControl({ type: "mouseMove", ...p });
+});
+
+remoteScreen.addEventListener("pointerup", (e) => {
+  if (activePointerId !== e.pointerId) return;
+  const p = pointerToRemote(e);
+  activePointerId = null;
+  remoteScreen.releasePointerCapture?.(e.pointerId);
+  if (!p) return;
+  e.preventDefault();
+  sendControl({ type: "mouseUp", ...p });
+});
+
+remoteScreen.addEventListener("pointercancel", (e) => {
+  if (activePointerId === e.pointerId) activePointerId = null;
+});
+
+remoteScreen.addEventListener("wheel", (e) => {
+  const p = pointerToRemote(e);
+  if (!p) return;
+  e.preventDefault();
+  sendControl({ type: "scroll", deltaY: Math.max(-600, Math.min(600, e.deltaY)), ...p });
+}, { passive: false });
+
+// ── WebRTC ────────────────────────────────────────────────────────────────────
+let peerConnection   = null;
+let signalPollTimer  = null;
+let pendingRtc       = null;
+let hostCandCount    = 0;
+let viewerCandCount  = 0;
+
+const rtcConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ],
+};
+
+async function processPendingRtc(rtc) {
+  if (!peerConnection || !rtc) return;
+  try {
+    if (rtc.answer && !peerConnection.currentRemoteDescription) {
+      await peerConnection.setRemoteDescription(rtc.answer);
+      addAudit("Viewer connected", "Mobile is now receiving screen");
+    }
+    const hc = rtc.hostCandidates || [];
+    for (let i = hostCandCount; i < hc.length; i++) {
+      if (hc[i]) await peerConnection.addIceCandidate(hc[i]).catch(() => {});
+    }
+    hostCandCount = hc.length;
+    const vc = rtc.viewerCandidates || [];
+    for (let i = viewerCandCount; i < vc.length; i++) {
+      if (vc[i]) await peerConnection.addIceCandidate(vc[i]).catch(() => {});
+    }
+    viewerCandCount = vc.length;
+  } catch {}
+}
+
 async function sendSignal(role, type, value) {
-  return api("/api/session/signal", {
+  // WebSocket is fastest
+  if (wsSend({ type: "signal", role, sigType: type, value })) return;
+  // REST fallback
+  await api("/api/session/signal", {
     method: "POST",
     body: JSON.stringify({ role, type, value }),
   });
 }
 
-async function getSignal() {
-  return api("/api/session/signal");
+function closePeerConnection() {
+  if (signalPollTimer) { clearInterval(signalPollTimer); signalPollTimer = null; }
+  if (peerConnection)  { peerConnection.close(); peerConnection = null; }
+  hostCandCount = 0; viewerCandCount = 0;
 }
 
-async function addNewCandidates(role, candidates) {
-  const start = role === "host" ? viewerCandidateCount : hostCandidateCount;
-  const newCandidates = candidates.slice(start);
+// ── Frame relay (host → server) ───────────────────────────────────────────────
+let frameRelayTimer  = null;
+let framePollTimer   = null;
+let frameStreamStarted = false;
 
-  for (const candidate of newCandidates) {
-    if (candidate) {
-      await peerConnection.addIceCandidate(candidate);
+function stopFrameTimers() {
+  if (frameRelayTimer) { clearInterval(frameRelayTimer); frameRelayTimer = null; }
+  if (framePollTimer)  { clearInterval(framePollTimer);  framePollTimer  = null; }
+  frameStreamStarted = false;
+}
+
+function startFrameRelay(stream) {
+  const vid  = document.createElement("video");
+  const cvs  = document.createElement("canvas");
+  const ctx  = cvs.getContext("2d", { alpha: false });
+  let quality = 0.62;
+  let lastSendMs = 0;
+
+  vid.srcObject = stream;
+  vid.muted = true;
+  vid.playsInline = true;
+  vid.play().catch(() => {});
+
+  frameRelayTimer = setInterval(async () => {
+    if (!vid.videoWidth || !vid.videoHeight) return;
+    const now = Date.now();
+    // Adaptive frame rate: skip if previous upload still slow
+    if (now - lastSendMs < 80) return;
+
+    const maxW = 1280;
+    const scale = Math.min(1, maxW / vid.videoWidth);
+    cvs.width  = Math.round(vid.videoWidth * scale);
+    cvs.height = Math.round(vid.videoHeight * scale);
+    ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
+
+    const t0  = performance.now();
+    const img = cvs.toDataURL("image/jpeg", quality);
+    try {
+      await api("/api/screen/frame", {
+        method: "POST",
+        body: JSON.stringify({ code: state.code, image: img, width: cvs.width, height: cvs.height }),
+      });
+      const dt = performance.now() - t0;
+      // Adaptive quality: speed up on fast link, throttle on slow
+      if (dt < 80)       quality = Math.min(0.78, quality + 0.02);
+      else if (dt > 250) quality = Math.max(0.32, quality - 0.05);
+      lastSendMs = Date.now();
+    } catch (err) {
+      addAudit("Frame relay failed", err.message);
     }
-  }
-
-  if (role === "host") {
-    viewerCandidateCount = candidates.length;
-  } else {
-    hostCandidateCount = candidates.length;
-  }
+  }, 50); // poll at 20fps, actual sends adapt
 }
 
+function startFrameStream() {
+  if (frameStreamStarted) return;
+  remoteFrame.src = `/api/screen/stream?code=${encodeURIComponent(state.code)}&t=${Date.now()}`;
+  remoteScreen.classList.add("frame-live");
+  frameStreamStarted = true;
+}
+
+async function updateFrameMeta(log = true) {
+  try {
+    const d = await api("/api/screen");
+    const scr = d.screen || {};
+    if (scr.active) {
+      latestScreenSize = { width: Number(scr.width || 0), height: Number(scr.height || 0) };
+      return true;
+    }
+    if (log) addAudit("Preview waiting", "No frames from host yet");
+  } catch {}
+  return false;
+}
+
+function startFrameViewer(log = true) {
+  if (framePollTimer) return;
+  startFrameStream();
+  updateFrameMeta(log);
+  framePollTimer = setInterval(() => updateFrameMeta(false), 1500);
+}
+
+// ── Screen share (host side) ──────────────────────────────────────────────────
 async function startHostScreenShare() {
   if (!state.approved || !state.permissions.screen) {
-    addAudit("Screen share blocked", "Approve screen sharing before starting");
+    addAudit("Blocked", "Screen sharing not approved");
     return;
   }
-
   if (!navigator.mediaDevices?.getDisplayMedia) {
-    addAudit("Screen share unavailable", "This browser does not support screen capture");
+    addAudit("Unavailable", "Browser doesn't support screen capture");
     return;
   }
 
   closePeerConnection();
   stopFrameTimers();
-  hostCandidateCount = 0;
-  viewerCandidateCount = 0;
 
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { cursor: "always" },
+      video: { width: { ideal: 1920 }, frameRate: { ideal: 30 }, cursor: "always" },
       audio: false,
     });
 
     remoteVideo.srcObject = stream;
     remoteScreen.classList.add("live");
-    startFrameRelay(stream);
-    peerConnection = new RTCPeerConnection(rtcConfig);
+    startFrameRelay(stream); // MJPEG relay as fallback path
 
+    peerConnection = new RTCPeerConnection(rtcConfig);
     stream.getTracks().forEach((track) => {
       peerConnection.addTrack(track, stream);
       track.addEventListener("ended", () => {
@@ -543,105 +682,113 @@ async function startHostScreenShare() {
         api("/api/screen/stop", { method: "POST", body: "{}" }).catch(() => {});
         remoteVideo.srcObject = null;
         remoteFrame.removeAttribute("src");
-        remoteScreen.classList.remove("live");
-        remoteScreen.classList.remove("frame-live");
-        addAudit("Screen share stopped", "The computer stopped sharing its screen");
+        remoteScreen.classList.remove("live", "frame-live");
+        addAudit("Screen share stopped", "");
       });
     });
 
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendSignal("host", "candidate", event.candidate.toJSON()).catch(() => {});
-      }
+    peerConnection.onicecandidate = (e) => {
+      if (e.candidate) sendSignal("host", "candidate", e.candidate.toJSON());
     };
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
     await sendSignal("host", "offer", offer);
-    addAudit("Screen share started", "Now tap View Live on the mobile device");
+    addAudit("Screen share started", "Tap View Live on mobile");
 
+    // Fallback poll for signals (WebSocket handles most of them)
     signalPollTimer = setInterval(async () => {
       try {
-        const data = await getSignal();
-        const rtc = data.rtc || {};
+        const d = await api("/api/session/signal");
+        await processPendingRtc(d.rtc || {});
+      } catch {}
+    }, 3000);
 
-        if (rtc.answer && !peerConnection.currentRemoteDescription) {
-          await peerConnection.setRemoteDescription(rtc.answer);
-          addAudit("Viewer connected", "The mobile device is receiving the live screen");
-        }
-
-        await addNewCandidates("host", rtc.viewerCandidates || []);
-      } catch (error) {
-        addAudit("Signal sync issue", error.message);
-      }
-    }, 1500);
-  } catch (error) {
-    addAudit("Screen share cancelled", error.message);
+  } catch (err) {
+    addAudit("Share cancelled", err.message);
   }
 }
 
+// ── Screen viewer (mobile side) ───────────────────────────────────────────────
 async function startViewerScreen() {
   if (!state.approved || !state.permissions.screen) {
-    addAudit("Viewer blocked", "The computer has not approved screen sharing");
+    addAudit("Blocked", "Screen sharing not approved");
     return;
   }
 
   closePeerConnection();
   startFrameViewer();
-  hostCandidateCount = 0;
-  viewerCandidateCount = 0;
 
   try {
-    const data = await getSignal();
-    const rtc = data.rtc || {};
+    const d   = await api("/api/session/signal");
+    const rtc = d.rtc || {};
 
     if (!rtc.offer) {
-      addAudit("Live preview started", "Waiting for frames from the computer");
+      addAudit("Preview active", "MJPEG stream running — WebRTC offer pending");
       return;
     }
 
     peerConnection = new RTCPeerConnection(rtcConfig);
-    peerConnection.ontrack = (event) => {
-      const [stream] = event.streams;
+
+    peerConnection.ontrack = (e) => {
+      const [stream] = e.streams;
       remoteVideo.srcObject = stream;
       remoteVideo.muted = false;
       remoteScreen.classList.add("live");
-      addAudit("Live screen visible", "The computer screen is now streaming here");
+      addAudit("Live stream", "Receiving host screen via WebRTC");
     };
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendSignal("viewer", "candidate", event.candidate.toJSON()).catch(() => {});
-      }
+
+    peerConnection.onicecandidate = (e) => {
+      if (e.candidate) sendSignal("viewer", "candidate", e.candidate.toJSON());
     };
 
     await peerConnection.setRemoteDescription(rtc.offer);
-    await addNewCandidates("viewer", rtc.hostCandidates || []);
+    await processPendingRtc(rtc);
+
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
     await sendSignal("viewer", "answer", answer);
-    addAudit("Viewer started", "Waiting for the computer stream");
+    addAudit("Viewer started", "Connecting to host stream");
 
     signalPollTimer = setInterval(async () => {
       try {
-        const latest = await getSignal();
-        const latestRtc = latest.rtc || {};
-        await addNewCandidates("viewer", latestRtc.hostCandidates || []);
-      } catch (error) {
-        addAudit("Signal sync issue", error.message);
-      }
-    }, 1500);
-  } catch (error) {
-    addAudit("Viewer failed", error.message);
+        const latest = await api("/api/session/signal");
+        await processPendingRtc(latest.rtc || {});
+      } catch {}
+    }, 3000);
+
+  } catch (err) {
+    addAudit("Viewer failed", err.message);
   }
 }
 
-shareScreenButton.addEventListener("click", startHostScreenShare);
-viewScreenButton.addEventListener("click", startViewerScreen);
+viewScreenButton.addEventListener("click", () => {
+  wsRole = "viewer";
+  startViewerScreen();
+});
 
-joinCode.value = state.code;
-updateControls();
-addAudit("Agent ready", "One-time code created on the computer");
-refreshSession();
-setInterval(refreshSession, 2000);
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+(async function init() {
+  updateControls();
+  connectWS();
+
+  // Initial session load via REST (in case WS init hasn't arrived yet)
+  try {
+    const d = await api("/api/session");
+    state.serverBacked = true;
+    applySession(d.session);
+  } catch {}
+
+  addAudit("RemoteDesk ready", "One-time code created");
+})();
+
+// Fallback REST poll — only runs if WebSocket is down
+setInterval(async () => {
+  if (wsReady) return;
+  try {
+    const d = await api("/api/session");
+    applySession(d.session);
+  } catch {}
+}, 4000);
 
 window.addEventListener("load", renderIcons);

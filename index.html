@@ -2,14 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RemoteDesk Jazverse</title>
-    <link rel="stylesheet" href="styles.css?v=20260524-1835" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>RemoteDesk</title>
+    <link rel="stylesheet" href="styles.css?v=20260524-6" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-    <script src="app.js?v=20260524-1835" defer></script>
+    <script src="app.js?v=20260524-6" defer></script>
   </head>
   <body>
     <main class="app-shell">
+
+      <!-- ── Topbar ──────────────────────────────────────────────────────── -->
       <section class="topbar" aria-label="Application header">
         <div>
           <p class="eyebrow">Consent-based remote desktop</p>
@@ -21,19 +26,22 @@
         </div>
       </section>
 
+      <!-- ── Workspace ───────────────────────────────────────────────────── -->
       <section class="workspace" aria-label="Remote support workspace">
+
+        <!-- ── Agent panel (computer side) ─────────────────────────────── -->
         <aside class="panel agent-panel">
           <div class="panel-header">
             <i data-lucide="monitor-dot"></i>
             <div>
               <h2>Computer Agent</h2>
-              <p>Install and approve on the computer first.</p>
+              <p>Install on the computer, then approve here.</p>
             </div>
           </div>
 
           <div class="code-card">
             <span>One-time code</span>
-            <strong id="sessionCode">739 184</strong>
+            <strong id="sessionCode">--- ---</strong>
             <button class="icon-button" id="newCodeButton" type="button" aria-label="Generate new code">
               <i data-lucide="refresh-cw"></i>
             </button>
@@ -59,9 +67,9 @@
           </form>
 
           <div class="agent-download">
-            <a class="ghost download-link" href="/downloads/RemoteDeskHost.ps1" download>
+            <a class="ghost download-link" href="/downloads/RemoteDeskHost.bat" download>
               <i data-lucide="download"></i>
-              Download host app
+              Download host agent (BAT)
             </a>
           </div>
 
@@ -70,22 +78,25 @@
               <i data-lucide="check"></i>
               Approve session
             </button>
-            <button class="ghost" id="shareScreenButton" type="button">
-              <i data-lucide="screen-share"></i>
-              Start screen share
-            </button>
             <button class="danger" id="revokeButton" type="button">
               <i data-lucide="octagon-x"></i>
               Revoke access
             </button>
           </div>
+          <div class="fps-row">
+            <label for="fpsRange">Stream FPS</label>
+            <input type="range" id="fpsRange" min="1" max="60" value="30" step="1" />
+            <span id="fpsLabel">30</span>
+          </div>
         </aside>
 
+        <!-- ── Viewer (mobile + screen) ─────────────────────────────────── -->
         <section class="viewer" aria-label="Remote device viewer">
+
           <div class="viewer-toolbar">
             <div class="session-input">
               <label for="joinCode">Join code</label>
-              <input id="joinCode" inputmode="numeric" placeholder="739 184" />
+              <input id="joinCode" inputmode="numeric" placeholder="--- ---" autocomplete="off" />
             </div>
             <button class="primary" id="joinButton" type="button">
               <i data-lucide="link"></i>
@@ -97,30 +108,31 @@
             </button>
           </div>
 
+          <!-- Remote screen area -->
           <div class="remote-screen" id="remoteScreen">
+            <!-- WebRTC live video -->
             <video id="remoteVideo" class="remote-video" autoplay playsinline muted></video>
+            <!-- MJPEG fallback -->
             <img id="remoteFrame" class="remote-frame" alt="Live shared computer screen" />
+
+            <!-- Placeholder desktop graphic (hidden when connected) -->
             <div class="screen-top">
-              <span></span>
-              <span></span>
-              <span></span>
+              <span></span><span></span><span></span>
             </div>
             <div class="screen-content">
               <div class="desktop-sidebar">
-                <div></div>
-                <div></div>
-                <div></div>
+                <div></div><div></div><div></div>
               </div>
               <div class="desktop-window">
                 <div class="window-bar"></div>
                 <div class="window-grid">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                  <span></span><span></span>
+                  <span></span><span></span>
                 </div>
               </div>
             </div>
+
+            <!-- Locked overlay -->
             <div class="consent-overlay" id="consentOverlay">
               <i data-lucide="lock-keyhole"></i>
               <h2>Remote screen locked</h2>
@@ -128,45 +140,59 @@
             </div>
           </div>
 
+          <!-- Tool strip -->
           <div class="control-strip" aria-label="Session controls">
-            <button class="tool" type="button" data-action="mouse">
-              <i data-lucide="mouse-pointer-2"></i>
-              <span>Mouse</span>
+            <button class="tool" id="mousePadButton" type="button" data-action="mouse">
+              <i data-lucide="move"></i>
+              <span>Move</span>
             </button>
-            <button class="tool" type="button" data-action="keyboard">
+            <button class="tool" id="leftClickButton" type="button" data-action="mouse">
+              <i data-lucide="mouse-pointer-click"></i>
+              <span>Left</span>
+            </button>
+            <button class="tool" id="rightClickButton" type="button" data-action="mouse">
+              <i data-lucide="panel-top-open"></i>
+              <span>Right</span>
+            </button>
+            <button class="tool" id="keyboardToolButton" type="button" data-action="keyboard">
               <i data-lucide="keyboard"></i>
               <span>Keyboard</span>
             </button>
-            <button class="tool" type="button" data-action="files">
-              <i data-lucide="folder-up"></i>
-              <span>Files</span>
-            </button>
-            <button class="tool" type="button" data-action="call">
-              <i data-lucide="phone-call"></i>
-              <span>Call</span>
-            </button>
             <button class="tool" id="viewScreenButton" type="button" data-action="screen">
               <i data-lucide="monitor-play"></i>
-              <span>View Live</span>
+              <span>View</span>
             </button>
           </div>
 
+          <!-- Mobile touchpad + virtual keyboard -->
           <div class="mobile-controls" aria-label="Mobile remote controls">
             <section class="touchpad" id="touchpad" aria-label="Touchpad area">
-              <i data-lucide="hand"></i>
-              <span>Touchpad</span>
+              <i data-lucide="move"></i>
+              <span>Move pointer</span>
+            </section>
+            <section class="mouse-clicks" aria-label="Mouse click buttons">
+              <button type="button" id="leftClickPadButton">
+                <i data-lucide="mouse-pointer-click"></i>
+                Left click
+              </button>
+              <button type="button" id="rightClickPadButton">
+                <i data-lucide="panel-top-open"></i>
+                Right click
+              </button>
             </section>
             <section class="virtual-keyboard" aria-label="Virtual keyboard">
+              <input id="textInput" class="text-input" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type to send" />
               <button type="button" data-key="Ctrl">Ctrl</button>
               <button type="button" data-key="Alt">Alt</button>
               <button type="button" data-key="Tab">Tab</button>
               <button type="button" data-key="Esc">Esc</button>
               <button type="button" data-key="Enter">Enter</button>
-              <button type="button" data-key="Backspace">Backspace</button>
+              <button type="button" data-key="Backspace">⌫</button>
             </section>
           </div>
         </section>
 
+        <!-- ── Audit log ─────────────────────────────────────────────────── -->
         <aside class="panel log-panel">
           <div class="panel-header">
             <i data-lucide="list-checks"></i>
@@ -177,6 +203,7 @@
           </div>
           <ol class="audit-log" id="auditLog"></ol>
         </aside>
+
       </section>
     </main>
   </body>
