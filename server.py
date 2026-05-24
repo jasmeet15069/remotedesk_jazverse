@@ -37,6 +37,12 @@ def new_session():
         "joinRequested": False,
         "revoked": False,
         "permissions": default_permissions(),
+        "rtc": {
+            "offer": None,
+            "answer": None,
+            "hostCandidates": [],
+            "viewerCandidates": [],
+        },
     }
 
 
@@ -95,6 +101,35 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
         if self.path == "/api/session/revoke":
             session = set_session({"approved": False, "joinRequested": False, "revoked": True})
             self.send_json({"session": session})
+            return
+
+        if self.path == "/api/session/signal":
+            body = self.safe_read_json()
+            if body is None:
+                return
+
+            role = body.get("role")
+            signal_type = body.get("type")
+            value = body.get("value")
+            session = get_session()
+            rtc = dict(session.get("rtc") or {})
+            rtc.setdefault("hostCandidates", [])
+            rtc.setdefault("viewerCandidates", [])
+
+            if role == "host" and signal_type == "offer":
+                rtc = {"offer": value, "answer": None, "hostCandidates": [], "viewerCandidates": []}
+            elif role == "viewer" and signal_type == "answer":
+                rtc["answer"] = value
+            elif role == "host" and signal_type == "candidate":
+                rtc["hostCandidates"].append(value)
+            elif role == "viewer" and signal_type == "candidate":
+                rtc["viewerCandidates"].append(value)
+            else:
+                self.send_json({"error": "Invalid signal"}, 400)
+                return
+
+            session = set_session({"rtc": rtc})
+            self.send_json({"rtc": session["rtc"]})
             return
 
         if self.path != "/api/ai":
@@ -171,6 +206,11 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
             self.send_json({"session": get_session()})
             return
 
+        if self.path == "/api/session/signal":
+            session = get_session()
+            self.send_json({"rtc": session.get("rtc") or {}})
+            return
+
         self.send_json({"error": "Not found"}, 404)
 
     def safe_read_json(self):
@@ -182,7 +222,7 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
-        if length > 8192:
+        if length > 65536:
             raise ValueError("Request body is too large")
 
         raw = self.rfile.read(length)

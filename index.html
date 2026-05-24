@@ -67,6 +67,10 @@
               <i data-lucide="check"></i>
               Approve session
             </button>
+            <button class="ghost" id="shareScreenButton" type="button">
+              <i data-lucide="screen-share"></i>
+              Start screen share
+            </button>
             <button class="danger" id="revokeButton" type="button">
               <i data-lucide="octagon-x"></i>
               Revoke access
@@ -91,6 +95,7 @@
           </div>
 
           <div class="remote-screen" id="remoteScreen">
+            <video id="remoteVideo" class="remote-video" autoplay playsinline muted></video>
             <div class="screen-top">
               <span></span>
               <span></span>
@@ -139,6 +144,10 @@
             <button class="tool" type="button" data-action="ai">
               <i data-lucide="bot"></i>
               <span>AI Assist</span>
+            </button>
+            <button class="tool" id="viewScreenButton" type="button" data-action="screen">
+              <i data-lucide="monitor-play"></i>
+              <span>View Live</span>
             </button>
           </div>
 

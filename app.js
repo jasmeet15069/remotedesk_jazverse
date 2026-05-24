@@ -24,7 +24,18 @@ const keyboardButtons = [...document.querySelectorAll(".virtual-keyboard button"
 const touchpad = document.querySelector("#touchpad");
 const aiPrompt = document.querySelector("#aiPrompt");
 const aiButton = document.querySelector("#aiButton");
+const shareScreenButton = document.querySelector("#shareScreenButton");
+const viewScreenButton = document.querySelector("#viewScreenButton");
+const remoteVideo = document.querySelector("#remoteVideo");
 let lastServerStatus = "";
+let peerConnection = null;
+let signalPollTimer = null;
+let hostCandidateCount = 0;
+let viewerCandidateCount = 0;
+
+const rtcConfig = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
 
 function renderIcons() {
   if (window.lucide) {
@@ -144,6 +155,8 @@ function updateControls() {
 
   aiPrompt.disabled = !state.approved || !state.permissions.ai;
   aiButton.disabled = !state.approved || !state.permissions.ai;
+  shareScreenButton.disabled = !state.approved || !state.permissions.screen;
+  viewScreenButton.disabled = !state.approved || !state.permissions.screen;
 }
 
 async function generateCode() {
@@ -261,6 +274,10 @@ permissionForm.addEventListener("change", () => {
 
 controlButtons.forEach((button) => {
   button.addEventListener("click", () => {
+    if (button.id === "viewScreenButton") {
+      return;
+    }
+
     const label = button.textContent.trim();
     addAudit(`${label} control used`, "Action queued for the approved host agent");
   });
@@ -296,6 +313,169 @@ document.querySelector("#fullscreenButton").addEventListener("click", async () =
   await remoteScreen.requestFullscreen();
   addAudit("Full screen opened", "Remote viewer expanded on this device");
 });
+
+function closePeerConnection() {
+  if (signalPollTimer) {
+    clearInterval(signalPollTimer);
+    signalPollTimer = null;
+  }
+
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+}
+
+async function sendSignal(role, type, value) {
+  return api("/api/session/signal", {
+    method: "POST",
+    body: JSON.stringify({ role, type, value }),
+  });
+}
+
+async function getSignal() {
+  return api("/api/session/signal");
+}
+
+async function addNewCandidates(role, candidates) {
+  const start = role === "host" ? viewerCandidateCount : hostCandidateCount;
+  const newCandidates = candidates.slice(start);
+
+  for (const candidate of newCandidates) {
+    if (candidate) {
+      await peerConnection.addIceCandidate(candidate);
+    }
+  }
+
+  if (role === "host") {
+    viewerCandidateCount = candidates.length;
+  } else {
+    hostCandidateCount = candidates.length;
+  }
+}
+
+async function startHostScreenShare() {
+  if (!state.approved || !state.permissions.screen) {
+    addAudit("Screen share blocked", "Approve screen sharing before starting");
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    addAudit("Screen share unavailable", "This browser does not support screen capture");
+    return;
+  }
+
+  closePeerConnection();
+  hostCandidateCount = 0;
+  viewerCandidateCount = 0;
+
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { cursor: "always" },
+      audio: false,
+    });
+
+    remoteVideo.srcObject = stream;
+    remoteScreen.classList.add("live");
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    stream.getTracks().forEach((track) => {
+      peerConnection.addTrack(track, stream);
+      track.addEventListener("ended", () => {
+        closePeerConnection();
+        remoteVideo.srcObject = null;
+        remoteScreen.classList.remove("live");
+        addAudit("Screen share stopped", "The computer stopped sharing its screen");
+      });
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignal("host", "candidate", event.candidate.toJSON()).catch(() => {});
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    await sendSignal("host", "offer", offer);
+    addAudit("Screen share started", "Now tap View Live on the mobile device");
+
+    signalPollTimer = setInterval(async () => {
+      try {
+        const data = await getSignal();
+        const rtc = data.rtc || {};
+
+        if (rtc.answer && !peerConnection.currentRemoteDescription) {
+          await peerConnection.setRemoteDescription(rtc.answer);
+          addAudit("Viewer connected", "The mobile device is receiving the live screen");
+        }
+
+        await addNewCandidates("host", rtc.viewerCandidates || []);
+      } catch (error) {
+        addAudit("Signal sync issue", error.message);
+      }
+    }, 1500);
+  } catch (error) {
+    addAudit("Screen share cancelled", error.message);
+  }
+}
+
+async function startViewerScreen() {
+  if (!state.approved || !state.permissions.screen) {
+    addAudit("Viewer blocked", "The computer has not approved screen sharing");
+    return;
+  }
+
+  closePeerConnection();
+  hostCandidateCount = 0;
+  viewerCandidateCount = 0;
+
+  try {
+    const data = await getSignal();
+    const rtc = data.rtc || {};
+
+    if (!rtc.offer) {
+      addAudit("No live screen yet", "Click Start screen share on the computer first");
+      return;
+    }
+
+    peerConnection = new RTCPeerConnection(rtcConfig);
+    peerConnection.ontrack = (event) => {
+      const [stream] = event.streams;
+      remoteVideo.srcObject = stream;
+      remoteVideo.muted = false;
+      remoteScreen.classList.add("live");
+      addAudit("Live screen visible", "The computer screen is now streaming here");
+    };
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignal("viewer", "candidate", event.candidate.toJSON()).catch(() => {});
+      }
+    };
+
+    await peerConnection.setRemoteDescription(rtc.offer);
+    await addNewCandidates("viewer", rtc.hostCandidates || []);
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    await sendSignal("viewer", "answer", answer);
+    addAudit("Viewer started", "Waiting for the computer stream");
+
+    signalPollTimer = setInterval(async () => {
+      try {
+        const latest = await getSignal();
+        const latestRtc = latest.rtc || {};
+        await addNewCandidates("viewer", latestRtc.hostCandidates || []);
+      } catch (error) {
+        addAudit("Signal sync issue", error.message);
+      }
+    }, 1500);
+  } catch (error) {
+    addAudit("Viewer failed", error.message);
+  }
+}
+
+shareScreenButton.addEventListener("click", startHostScreenShare);
+viewScreenButton.addEventListener("click", startViewerScreen);
 
 aiButton.addEventListener("click", async () => {
   const prompt = aiPrompt.value.trim();

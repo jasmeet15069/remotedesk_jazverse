@@ -199,6 +199,7 @@ h2 {
 .agent-actions,
 .viewer-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -280,6 +281,25 @@ h2 {
   overflow: hidden;
   background: #0d1814;
   border: 1px solid #24352f;
+}
+
+.remote-video {
+  position: absolute;
+  inset: 38px 0 0;
+  z-index: 3;
+  width: 100%;
+  height: calc(100% - 38px);
+  display: none;
+  background: #050807;
+  object-fit: contain;
+}
+
+.remote-screen.live .remote-video {
+  display: block;
+}
+
+.remote-screen.live .screen-content {
+  opacity: 0;
 }
 
 .screen-top {
@@ -369,7 +389,7 @@ h2 {
 
 .control-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   padding: 0 14px 14px;
 }
