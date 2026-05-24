@@ -33,8 +33,13 @@ input {
   font: inherit;
 }
 
-button {
+button,
+a {
   cursor: pointer;
+}
+
+a {
+  text-decoration: none;
 }
 
 .app-shell {
@@ -206,7 +211,8 @@ h2 {
 .primary,
 .ghost,
 .danger,
-.tool {
+.tool,
+.download-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -236,6 +242,10 @@ h2 {
 .ghost {
   background: white;
   border-color: var(--line);
+  color: var(--blue);
+}
+
+.download-link {
   color: var(--blue);
 }
 

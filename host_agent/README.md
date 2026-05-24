@@ -6,6 +6,14 @@ only while you keep the app open and press **Start sharing**.
 
 ## Run
 
+Double-click:
+
+```text
+start_remotedesk_host.bat
+```
+
+Or run manually:
+
 ```powershell
 cd host_agent
 py -m venv .venv
