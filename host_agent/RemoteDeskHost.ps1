@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+try {
 
 $Server = "https://remotedesk.jazverse.online"
 $script:Code = ""
@@ -355,3 +356,17 @@ $controlTimer.Stop()
 $timer.Stop()
 Send-Stop
 $notify.Dispose()
+} catch {
+  $message = "RemoteDesk Host stopped: " + $_.Exception.Message
+  try {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+    [System.Windows.Forms.MessageBox]::Show($message, "RemoteDesk Host Error") | Out-Null
+  } catch {
+  }
+  Write-Host ""
+  Write-Host $message -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Press Enter to close this window."
+  [Console]::ReadLine() | Out-Null
+  exit 1
+}
