@@ -6,10 +6,10 @@ only while you keep the app open and press **Start sharing**.
 
 ## Run
 
-For the one-file background tray app, double-click:
+For the one-file background tray app, right-click and run with PowerShell:
 
 ```text
-RemoteDeskHost.vbs
+RemoteDeskHost.ps1
 ```
 
 This is the recommended desktop host. It prompts for the session code, then runs
