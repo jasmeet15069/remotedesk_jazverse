@@ -120,6 +120,7 @@ h2 {
 
 .panel {
   padding: 18px;
+  overflow: hidden;
 }
 
 .panel-header {
@@ -209,12 +210,15 @@ h2 {
 }
 
 .agent-download {
-  margin-bottom: 10px;
+  margin-top: 14px;
+  margin-bottom: 14px;
 }
 
 .agent-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
 }
 
 .primary,
@@ -232,6 +236,9 @@ h2 {
   border: 1px solid transparent;
   font-weight: 800;
   min-width: 0;
+  text-align: center;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .primary {
@@ -257,6 +264,7 @@ h2 {
 
 .download-link {
   width: 100%;
+  min-height: 50px;
   color: var(--blue);
 }
 
@@ -547,6 +555,10 @@ h2 {
   .screen-content {
     min-height: 382px;
   }
+
+  .agent-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -562,6 +574,10 @@ h2 {
 
   .status-pill {
     justify-content: center;
+  }
+
+  .agent-actions {
+    grid-template-columns: 1fr;
   }
 
   .remote-screen {
