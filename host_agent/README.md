@@ -12,7 +12,9 @@ Double-click:
 start_remotedesk_host.bat
 ```
 
-Or run manually:
+The launcher uses built-in Windows PowerShell, so Python is not required.
+
+Or run the older Python version manually:
 
 ```powershell
 cd host_agent
