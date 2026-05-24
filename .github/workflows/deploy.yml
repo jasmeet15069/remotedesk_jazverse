@@ -9,6 +9,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      REMOTEDESK_SSH_HOST: 172.105.41.151
+      REMOTEDESK_SSH_USER: root
+      REMOTEDESK_DEPLOY_PATH: /var/www/remotedesk.jazverse.online
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,9 +27,9 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.REMOTEDESK_SSH_KEY }}" > ~/.ssh/remotedesk_key
           chmod 600 ~/.ssh/remotedesk_key
-          ssh-keyscan -H "${{ secrets.REMOTEDESK_SSH_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$REMOTEDESK_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy static files
         run: |
-          ssh -i ~/.ssh/remotedesk_key "${{ secrets.REMOTEDESK_SSH_USER }}@${{ secrets.REMOTEDESK_SSH_HOST }}" "mkdir -p '${{ secrets.REMOTEDESK_DEPLOY_PATH }}'"
-          rsync -az --delete -e "ssh -i ~/.ssh/remotedesk_key" dist/ "${{ secrets.REMOTEDESK_SSH_USER }}@${{ secrets.REMOTEDESK_SSH_HOST }}:${{ secrets.REMOTEDESK_DEPLOY_PATH }}/"
+          ssh -i ~/.ssh/remotedesk_key "$REMOTEDESK_SSH_USER@$REMOTEDESK_SSH_HOST" "mkdir -p '$REMOTEDESK_DEPLOY_PATH'"
+          rsync -az --delete -e "ssh -i ~/.ssh/remotedesk_key" dist/ "$REMOTEDESK_SSH_USER@$REMOTEDESK_SSH_HOST:$REMOTEDESK_DEPLOY_PATH/"

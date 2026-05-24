@@ -11,13 +11,6 @@ one-time session codes, visible permission toggles, a revoke button, and audit l
 The GitHub Actions workflow deploys static files to the Jazverse Cloud VM over SSH.
 Configure these repository secrets before relying on automatic deploys:
 
-- `REMOTEDESK_SSH_HOST`
-- `REMOTEDESK_SSH_USER`
 - `REMOTEDESK_SSH_KEY`
-- `REMOTEDESK_DEPLOY_PATH`
 
-Recommended deploy path:
-
-```text
-/var/www/remotedesk.jazverse.online
-```
+The workflow deploys to `root@172.105.41.151:/var/www/remotedesk.jazverse.online`.
