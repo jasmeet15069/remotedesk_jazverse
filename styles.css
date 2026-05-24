@@ -208,6 +208,15 @@ h2 {
   gap: 10px;
 }
 
+.agent-download {
+  margin-bottom: 10px;
+}
+
+.agent-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
 .primary,
 .ghost,
 .danger,
@@ -222,6 +231,7 @@ h2 {
   border-radius: 8px;
   border: 1px solid transparent;
   font-weight: 800;
+  min-width: 0;
 }
 
 .primary {
@@ -246,6 +256,7 @@ h2 {
 }
 
 .download-link {
+  width: 100%;
   color: var(--blue);
 }
 
@@ -544,8 +555,7 @@ h2 {
   }
 
   .topbar,
-  .viewer-toolbar,
-  .agent-actions {
+  .viewer-toolbar {
     align-items: stretch;
     flex-direction: column;
   }
