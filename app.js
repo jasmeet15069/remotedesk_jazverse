@@ -78,7 +78,7 @@ function applySession(session) {
   state.permissions = { ...state.permissions, ...(session.permissions || {}) };
 
   sessionCode.textContent = state.code;
-  if (!joinCode.value || joinCode.value === "739 184") {
+  if (document.activeElement !== joinCode) {
     joinCode.value = state.code;
   }
 
