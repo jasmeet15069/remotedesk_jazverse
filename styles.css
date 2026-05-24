@@ -742,9 +742,10 @@ body.viewer-focus .remote-frame {
   left: 0;
   right: 0;
   top: var(--fs-top);
-  bottom: auto;
-  width: 100%;
-  height: calc(var(--rd-vh, 100dvh) - var(--fs-top) - var(--fs-bottom));
+  bottom: var(--fs-bottom);
+  margin: auto;
+  width: auto;
+  height: auto;
   max-width: 100vw;
   max-height: calc(var(--rd-vh, 100dvh) - var(--fs-top) - var(--fs-bottom));
   object-fit: contain;
@@ -771,11 +772,13 @@ body.viewer-focus .control-strip {
 
 body.viewer-focus .mobile-controls {
   position: absolute;
-  right: 8px;
+  left: 50%;
+  right: auto;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
   z-index: 34;
   display: flex;
   width: min(280px, 42vw);
+  transform: translateX(-50%);
   border: 1px solid rgba(59,130,246,.25);
   border-radius: 8px;
   overflow: hidden;
@@ -878,7 +881,8 @@ body.viewer-focus .virtual-keyboard {
   }
 
   body.viewer-focus .mobile-controls {
-    right: 6px;
+    left: 50%;
+    right: auto;
     bottom: calc(env(safe-area-inset-bottom, 0px) + 58px);
     width: min(220px, 36vw);
   }
@@ -945,10 +949,10 @@ body.viewer-focus .remote-screen::after {
   }
 
   body.viewer-focus .mobile-controls {
-    left: 6px;
-    right: 6px;
+    left: 50%;
+    right: auto;
     bottom: calc(env(safe-area-inset-bottom, 0px) + 62px);
-    width: auto;
+    width: calc(100vw - 12px);
   }
 
   body.viewer-focus .touchpad {
@@ -983,6 +987,6 @@ body.viewer-focus .remote-screen::after {
   }
 
   body.viewer-focus .mobile-controls {
-    width: min(250px, 32vw);
+    width: min(250px, calc(100vw - 16px));
   }
 }
