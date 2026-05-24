@@ -20,7 +20,7 @@ jobs:
       - name: Prepare package
         run: |
           mkdir -p dist
-          cp index.html styles.css app.js dist/
+          cp index.html styles.css app.js server.py dist/
 
       - name: Install SSH key
         run: |

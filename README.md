@@ -14,3 +14,9 @@ Configure these repository secrets before relying on automatic deploys:
 - `REMOTEDESK_SSH_KEY`
 
 The workflow deploys to `root@172.105.41.151:/var/www/remotedesk.jazverse.online`.
+
+## AI Assist
+
+The AI Assist panel calls a server-side proxy at `/api/ai`, backed by Groq's
+`llama-3.3-70b-versatile` model. Keep `GROQ_API_KEY` on the server only. Never
+commit API keys or expose them in browser JavaScript.

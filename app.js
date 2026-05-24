@@ -162,15 +162,35 @@ document.querySelector("#fullscreenButton").addEventListener("click", async () =
   addAudit("Full screen opened", "Remote viewer expanded on this device");
 });
 
-aiButton.addEventListener("click", () => {
+aiButton.addEventListener("click", async () => {
   const prompt = aiPrompt.value.trim();
   if (!prompt) {
     addAudit("AI assist blocked", "Enter a request before queueing assistance");
     return;
   }
 
-  addAudit("AI assist queued", "The host computer must approve each sensitive action");
-  aiPrompt.value = "";
+  aiButton.disabled = true;
+  addAudit("AI assist queued", "Sending request to Groq Llama 70B");
+
+  try {
+    const response = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "AI request failed");
+    }
+
+    addAudit("AI assist response", data.message || "No response returned");
+    aiPrompt.value = "";
+  } catch (error) {
+    addAudit("AI assist failed", error.message);
+  } finally {
+    updateControls();
+  }
 });
 
 joinCode.value = state.code;
