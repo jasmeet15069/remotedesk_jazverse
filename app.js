@@ -122,6 +122,10 @@ async function refreshSession() {
     state.serverBacked = true;
     applySession(data.session);
 
+    if (state.approved && state.permissions.screen && !framePollTimer) {
+      startFrameViewer(false);
+    }
+
     const status = JSON.stringify({
       approved: state.approved,
       joinRequested: state.joinRequested,
@@ -376,19 +380,34 @@ function startFrameRelay(stream) {
   }, 700);
 }
 
-function startFrameViewer() {
-  stopFrameTimers();
-  framePollTimer = setInterval(async () => {
-    try {
-      const data = await api("/api/screen");
-      const screen = data.screen || {};
-      if (screen.active && screen.image) {
-        remoteFrame.src = screen.image;
-        remoteScreen.classList.add("frame-live");
-      }
-    } catch (error) {
-      addAudit("Live preview failed", error.message);
+async function displayLatestFrame(logWhenWaiting = true) {
+  try {
+    const data = await api("/api/screen");
+    const screen = data.screen || {};
+    if (screen.active && screen.image) {
+      remoteFrame.src = screen.image;
+      remoteScreen.classList.add("frame-live");
+      return true;
     }
+
+    if (logWhenWaiting) {
+      addAudit("Live preview waiting", "No frames have arrived from the host agent yet");
+    }
+    return false;
+  } catch (error) {
+    addAudit("Live preview failed", error.message);
+    return false;
+  }
+}
+
+function startFrameViewer(logWhenWaiting = true) {
+  if (framePollTimer) {
+    return;
+  }
+
+  displayLatestFrame(logWhenWaiting);
+  framePollTimer = setInterval(() => {
+    displayLatestFrame(false);
   }, 900);
 }
 
