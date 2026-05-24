@@ -6,13 +6,31 @@ only while you keep the app open and press **Start sharing**.
 
 ## Run
 
-Double-click:
+For the one-file background tray app, double-click:
+
+```text
+RemoteDeskHost.vbs
+```
+
+This is the recommended desktop host. It prompts for the session code, then runs
+from the Windows system tray.
+
+Developer/source launchers:
+
+```text
+start_remotedesk_host.vbs
+```
+
+This opens a small code prompt, then runs from the Windows system tray. Right-click
+the tray icon and choose **Stop RemoteDesk Host** to disable it.
+
+Console fallback:
 
 ```text
 start_remotedesk_host.bat
 ```
 
-The launcher uses built-in Windows PowerShell, so Python is not required.
+The launchers use built-in Windows PowerShell, so Python is not required.
 
 Or run the older Python version manually:
 
