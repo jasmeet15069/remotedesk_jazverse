@@ -1,0 +1,31 @@
+name: Deploy RemoteDesk
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare package
+        run: |
+          mkdir -p dist
+          cp index.html styles.css app.js dist/
+
+      - name: Install SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.REMOTEDESK_SSH_KEY }}" > ~/.ssh/remotedesk_key
+          chmod 600 ~/.ssh/remotedesk_key
+          ssh-keyscan -H "${{ secrets.REMOTEDESK_SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy static files
+        run: |
+          ssh -i ~/.ssh/remotedesk_key "${{ secrets.REMOTEDESK_SSH_USER }}@${{ secrets.REMOTEDESK_SSH_HOST }}" "mkdir -p '${{ secrets.REMOTEDESK_DEPLOY_PATH }}'"
+          rsync -az --delete -e "ssh -i ~/.ssh/remotedesk_key" dist/ "${{ secrets.REMOTEDESK_SSH_USER }}@${{ secrets.REMOTEDESK_SSH_HOST }}:${{ secrets.REMOTEDESK_DEPLOY_PATH }}/"

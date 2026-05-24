@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RemoteDesk Jazverse</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="Application header">
+        <div>
+          <p class="eyebrow">Consent-based remote desktop</p>
+          <h1>RemoteDesk</h1>
+        </div>
+        <div class="status-pill" id="connectionStatus">
+          <i data-lucide="shield-check"></i>
+          <span>Waiting for consent</span>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Remote support workspace">
+        <aside class="panel agent-panel">
+          <div class="panel-header">
+            <i data-lucide="monitor-dot"></i>
+            <div>
+              <h2>Computer Agent</h2>
+              <p>Install and approve on the computer first.</p>
+            </div>
+          </div>
+
+          <div class="code-card">
+            <span>One-time code</span>
+            <strong id="sessionCode">739 184</strong>
+            <button class="icon-button" id="newCodeButton" type="button" aria-label="Generate new code">
+              <i data-lucide="refresh-cw"></i>
+            </button>
+          </div>
+
+          <form class="permission-list" id="permissionForm">
+            <label>
+              <input type="checkbox" name="screen" checked />
+              <span>Share screen</span>
+            </label>
+            <label>
+              <input type="checkbox" name="mouse" />
+              <span>Allow mouse control</span>
+            </label>
+            <label>
+              <input type="checkbox" name="keyboard" />
+              <span>Allow keyboard input</span>
+            </label>
+            <label>
+              <input type="checkbox" name="files" />
+              <span>Allow file transfer</span>
+            </label>
+            <label>
+              <input type="checkbox" name="ai" />
+              <span>Allow AI agent assistance</span>
+            </label>
+          </form>
+
+          <div class="agent-actions">
+            <button class="primary" id="approveButton" type="button">
+              <i data-lucide="check"></i>
+              Approve session
+            </button>
+            <button class="danger" id="revokeButton" type="button">
+              <i data-lucide="octagon-x"></i>
+              Revoke access
+            </button>
+          </div>
+        </aside>
+
+        <section class="viewer" aria-label="Remote device viewer">
+          <div class="viewer-toolbar">
+            <div class="session-input">
+              <label for="joinCode">Join code</label>
+              <input id="joinCode" inputmode="numeric" placeholder="739 184" />
+            </div>
+            <button class="primary" id="joinButton" type="button">
+              <i data-lucide="link"></i>
+              Connect
+            </button>
+            <button class="ghost" id="fullscreenButton" type="button">
+              <i data-lucide="maximize"></i>
+              Full screen
+            </button>
+          </div>
+
+          <div class="remote-screen" id="remoteScreen">
+            <div class="screen-top">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="screen-content">
+              <div class="desktop-sidebar">
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+              <div class="desktop-window">
+                <div class="window-bar"></div>
+                <div class="window-grid">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            </div>
+            <div class="consent-overlay" id="consentOverlay">
+              <i data-lucide="lock-keyhole"></i>
+              <h2>Remote screen locked</h2>
+              <p>Enter the one-time code and wait for approval on the computer.</p>
+            </div>
+          </div>
+
+          <div class="control-strip" aria-label="Session controls">
+            <button class="tool" type="button" data-action="mouse">
+              <i data-lucide="mouse-pointer-2"></i>
+              <span>Mouse</span>
+            </button>
+            <button class="tool" type="button" data-action="keyboard">
+              <i data-lucide="keyboard"></i>
+              <span>Keyboard</span>
+            </button>
+            <button class="tool" type="button" data-action="files">
+              <i data-lucide="folder-up"></i>
+              <span>Files</span>
+            </button>
+            <button class="tool" type="button" data-action="call">
+              <i data-lucide="phone-call"></i>
+              <span>Call</span>
+            </button>
+            <button class="tool" type="button" data-action="ai">
+              <i data-lucide="bot"></i>
+              <span>AI Assist</span>
+            </button>
+          </div>
+
+          <div class="mobile-controls" aria-label="Mobile remote controls">
+            <section class="touchpad" id="touchpad" aria-label="Touchpad area">
+              <i data-lucide="hand"></i>
+              <span>Touchpad</span>
+            </section>
+            <section class="virtual-keyboard" aria-label="Virtual keyboard">
+              <button type="button" data-key="Ctrl">Ctrl</button>
+              <button type="button" data-key="Alt">Alt</button>
+              <button type="button" data-key="Tab">Tab</button>
+              <button type="button" data-key="Esc">Esc</button>
+              <button type="button" data-key="Enter">Enter</button>
+              <button type="button" data-key="Backspace">Backspace</button>
+            </section>
+          </div>
+        </section>
+
+        <aside class="panel log-panel">
+          <div class="panel-header">
+            <i data-lucide="list-checks"></i>
+            <div>
+              <h2>Audit Trail</h2>
+              <p>Every access decision is recorded.</p>
+            </div>
+          </div>
+          <div class="ai-box">
+            <label for="aiPrompt">AI agent request</label>
+            <textarea id="aiPrompt" rows="4" placeholder="Example: Open settings and check Wi-Fi status"></textarea>
+            <button class="primary" id="aiButton" type="button">
+              <i data-lucide="sparkles"></i>
+              Queue assist
+            </button>
+          </div>
+          <ol class="audit-log" id="auditLog"></ol>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>
