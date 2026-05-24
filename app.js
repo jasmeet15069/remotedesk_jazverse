@@ -1,6 +1,9 @@
 const state = {
   code: "739 184",
   approved: false,
+  joinRequested: false,
+  revoked: false,
+  serverBacked: false,
   permissions: {
     screen: true,
     mouse: false,
@@ -21,6 +24,7 @@ const keyboardButtons = [...document.querySelectorAll(".virtual-keyboard button"
 const touchpad = document.querySelector("#touchpad");
 const aiPrompt = document.querySelector("#aiPrompt");
 const aiButton = document.querySelector("#aiButton");
+let lastServerStatus = "";
 
 function renderIcons() {
   if (window.lucide) {
@@ -52,6 +56,78 @@ function readPermissions() {
   };
 }
 
+function applySession(session) {
+  state.code = session.code || state.code;
+  state.approved = Boolean(session.approved);
+  state.joinRequested = Boolean(session.joinRequested);
+  state.revoked = Boolean(session.revoked);
+  state.permissions = { ...state.permissions, ...(session.permissions || {}) };
+
+  sessionCode.textContent = state.code;
+  if (!joinCode.value || joinCode.value === "739 184") {
+    joinCode.value = state.code;
+  }
+
+  if (state.approved || state.revoked) {
+    Object.entries(state.permissions).forEach(([name, enabled]) => {
+      const input = permissionForm.querySelector(`[name="${name}"]`);
+      if (input) {
+        input.checked = enabled;
+      }
+    });
+  }
+
+  if (state.approved) {
+    setStatus("connected", "Session approved", "radio-tower");
+  } else if (state.joinRequested) {
+    setStatus("", "Mobile waiting", "badge-check");
+  } else if (state.revoked) {
+    setStatus("revoked", "Access revoked", "octagon-x");
+  } else {
+    setStatus("", "Waiting for consent", "shield-check");
+  }
+
+  updateControls();
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Request failed");
+  }
+  return data;
+}
+
+async function refreshSession() {
+  try {
+    const data = await api("/api/session");
+    state.serverBacked = true;
+    applySession(data.session);
+
+    const status = JSON.stringify({
+      approved: state.approved,
+      joinRequested: state.joinRequested,
+      revoked: state.revoked,
+      code: state.code,
+    });
+    if (status !== lastServerStatus) {
+      lastServerStatus = status;
+      if (state.joinRequested && !state.approved) {
+        addAudit("Mobile join request", "Approve the session on the computer");
+      }
+      if (state.approved) {
+        addAudit("Session synced", "Mobile and computer are connected through the server");
+      }
+    }
+  } catch (error) {
+    state.serverBacked = false;
+  }
+}
+
 function updateControls() {
   remoteScreen.classList.toggle("connected", state.approved && state.permissions.screen);
 
@@ -70,7 +146,18 @@ function updateControls() {
   aiButton.disabled = !state.approved || !state.permissions.ai;
 }
 
-function generateCode() {
+async function generateCode() {
+  if (state.serverBacked) {
+    try {
+      const data = await api("/api/session/new", { method: "POST", body: "{}" });
+      applySession(data.session);
+      addAudit("New code generated", "Server session reset for mobile connection");
+      return;
+    } catch (error) {
+      addAudit("Server sync failed", error.message);
+    }
+  }
+
   const digits = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10)).join("");
   state.code = `${digits.slice(0, 3)} ${digits.slice(3)}`;
   state.approved = false;
@@ -83,9 +170,27 @@ function generateCode() {
 
 document.querySelector("#newCodeButton").addEventListener("click", generateCode);
 
-document.querySelector("#joinButton").addEventListener("click", () => {
+document.querySelector("#joinButton").addEventListener("click", async () => {
   const normalizedInput = joinCode.value.replace(/\s/g, "");
   const normalizedCode = state.code.replace(/\s/g, "");
+
+  if (state.serverBacked) {
+    try {
+      const data = await api("/api/session/join", {
+        method: "POST",
+        body: JSON.stringify({ code: joinCode.value }),
+      });
+      applySession(data.session);
+      addAudit("Join request sent", "Approve the session on the computer");
+      return;
+    } catch (error) {
+      state.approved = false;
+      setStatus("revoked", "Code rejected", "triangle-alert");
+      updateControls();
+      addAudit("Connection denied", error.message);
+      return;
+    }
+  }
 
   if (normalizedInput !== normalizedCode) {
     state.approved = false;
@@ -99,8 +204,27 @@ document.querySelector("#joinButton").addEventListener("click", () => {
   addAudit("Join request received", "Computer approval is still required");
 });
 
-document.querySelector("#approveButton").addEventListener("click", () => {
+document.querySelector("#approveButton").addEventListener("click", async () => {
   readPermissions();
+
+  if (state.serverBacked) {
+    try {
+      const data = await api("/api/session/approve", {
+        method: "POST",
+        body: JSON.stringify({ permissions: state.permissions }),
+      });
+      applySession(data.session);
+      const allowed = Object.entries(state.permissions)
+        .filter(([, enabled]) => enabled)
+        .map(([name]) => name)
+        .join(", ");
+      addAudit("Session approved", `Allowed permissions: ${allowed || "none"}`);
+      return;
+    } catch (error) {
+      addAudit("Approval failed", error.message);
+    }
+  }
+
   state.approved = true;
   setStatus("connected", "Session approved", "radio-tower");
   updateControls();
@@ -111,7 +235,18 @@ document.querySelector("#approveButton").addEventListener("click", () => {
   addAudit("Session approved", `Allowed permissions: ${allowed || "none"}`);
 });
 
-document.querySelector("#revokeButton").addEventListener("click", () => {
+document.querySelector("#revokeButton").addEventListener("click", async () => {
+  if (state.serverBacked) {
+    try {
+      const data = await api("/api/session/revoke", { method: "POST", body: "{}" });
+      applySession(data.session);
+      addAudit("Access revoked", "The computer ended the remote session");
+      return;
+    } catch (error) {
+      addAudit("Revoke failed", error.message);
+    }
+  }
+
   state.approved = false;
   setStatus("revoked", "Access revoked", "octagon-x");
   updateControls();
@@ -196,5 +331,7 @@ aiButton.addEventListener("click", async () => {
 joinCode.value = state.code;
 updateControls();
 addAudit("Agent ready", "One-time code created on the computer");
+refreshSession();
+setInterval(refreshSession, 2000);
 
 window.addEventListener("load", renderIcons);

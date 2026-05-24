@@ -1,5 +1,7 @@
 import json
 import os
+import random
+import threading
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,12 +11,92 @@ HOST = os.environ.get("REMOTEDESK_AI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("REMOTEDESK_AI_PORT", "8020"))
 MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+SESSION_LOCK = threading.Lock()
+SESSION = None
+
+
+def make_code():
+    digits = "".join(str(random.randint(0, 9)) for _ in range(6))
+    return f"{digits[:3]} {digits[3:]}"
+
+
+def default_permissions():
+    return {
+        "screen": True,
+        "mouse": False,
+        "keyboard": False,
+        "files": False,
+        "ai": False,
+    }
+
+
+def new_session():
+    return {
+        "code": make_code(),
+        "approved": False,
+        "joinRequested": False,
+        "revoked": False,
+        "permissions": default_permissions(),
+    }
+
+
+def get_session():
+    global SESSION
+    with SESSION_LOCK:
+        if SESSION is None:
+            SESSION = new_session()
+        return dict(SESSION)
+
+
+def set_session(updates):
+    global SESSION
+    with SESSION_LOCK:
+        if SESSION is None:
+            SESSION = new_session()
+        SESSION.update(updates)
+        return dict(SESSION)
 
 
 class RemoteDeskHandler(BaseHTTPRequestHandler):
     server_version = "RemoteDeskAI/1.0"
 
     def do_POST(self):
+        if self.path == "/api/session/new":
+            session = set_session(new_session())
+            self.send_json({"session": session})
+            return
+
+        if self.path == "/api/session/join":
+            body = self.safe_read_json()
+            if body is None:
+                return
+
+            code = str(body.get("code", "")).replace(" ", "")
+            session = get_session()
+            if code != session["code"].replace(" ", ""):
+                self.send_json({"error": "Code rejected", "session": session}, 403)
+                return
+
+            session = set_session({"joinRequested": True, "revoked": False})
+            self.send_json({"session": session})
+            return
+
+        if self.path == "/api/session/approve":
+            body = self.safe_read_json()
+            if body is None:
+                return
+
+            permissions = default_permissions()
+            permissions.update({key: bool(value) for key, value in body.get("permissions", {}).items()})
+            session = set_session({"approved": True, "revoked": False, "permissions": permissions})
+            self.send_json({"session": session})
+            return
+
+        if self.path == "/api/session/revoke":
+            session = set_session({"approved": False, "joinRequested": False, "revoked": True})
+            self.send_json({"session": session})
+            return
+
         if self.path != "/api/ai":
             self.send_json({"error": "Not found"}, 404)
             return
@@ -85,7 +167,18 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
             self.send_json({"ok": True, "model": MODEL})
             return
 
+        if self.path == "/api/session":
+            self.send_json({"session": get_session()})
+            return
+
         self.send_json({"error": "Not found"}, 404)
+
+    def safe_read_json(self):
+        try:
+            return self.read_json()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, 400)
+            return None
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
