@@ -32,7 +32,6 @@ def default_permissions():
         "mouse": False,
         "keyboard": False,
         "files": False,
-        "ai": False,
     }
 
 
@@ -242,6 +241,10 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
 
             session = set_session({"rtc": rtc})
             self.send_json({"rtc": session["rtc"]})
+            return
+
+        if path == "/api/ai":
+            self.send_json({"error": "AI assist is disabled"}, 410)
             return
 
         if path != "/api/ai":

@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RemoteDesk Jazverse</title>
-    <link rel="stylesheet" href="styles.css?v=20260524-1745" />
+    <link rel="stylesheet" href="styles.css?v=20260524-1800" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-    <script src="app.js?v=20260524-1745" defer></script>
+    <script src="app.js?v=20260524-1800" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -55,10 +55,6 @@
             <label>
               <input type="checkbox" name="files" />
               <span>Allow file transfer</span>
-            </label>
-            <label>
-              <input type="checkbox" name="ai" />
-              <span>Allow AI agent assistance</span>
             </label>
           </form>
 
@@ -149,10 +145,6 @@
               <i data-lucide="phone-call"></i>
               <span>Call</span>
             </button>
-            <button class="tool" type="button" data-action="ai">
-              <i data-lucide="bot"></i>
-              <span>AI Assist</span>
-            </button>
             <button class="tool" id="viewScreenButton" type="button" data-action="screen">
               <i data-lucide="monitor-play"></i>
               <span>View Live</span>
@@ -182,14 +174,6 @@
               <h2>Audit Trail</h2>
               <p>Every access decision is recorded.</p>
             </div>
-          </div>
-          <div class="ai-box">
-            <label for="aiPrompt">AI agent request</label>
-            <textarea id="aiPrompt" rows="4" placeholder="Example: Open settings and check Wi-Fi status"></textarea>
-            <button class="primary" id="aiButton" type="button">
-              <i data-lucide="sparkles"></i>
-              Queue assist
-            </button>
           </div>
           <ol class="audit-log" id="auditLog"></ol>
         </aside>

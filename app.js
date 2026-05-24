@@ -9,7 +9,6 @@ const state = {
     mouse: false,
     keyboard: false,
     files: false,
-    ai: false,
   },
 };
 
@@ -22,8 +21,6 @@ const permissionForm = document.querySelector("#permissionForm");
 const controlButtons = [...document.querySelectorAll(".tool")];
 const keyboardButtons = [...document.querySelectorAll(".virtual-keyboard button")];
 const touchpad = document.querySelector("#touchpad");
-const aiPrompt = document.querySelector("#aiPrompt");
-const aiButton = document.querySelector("#aiButton");
 const shareScreenButton = document.querySelector("#shareScreenButton");
 const viewScreenButton = document.querySelector("#viewScreenButton");
 const remoteVideo = document.querySelector("#remoteVideo");
@@ -66,7 +63,6 @@ function readPermissions() {
     mouse: data.has("mouse"),
     keyboard: data.has("keyboard"),
     files: data.has("files"),
-    ai: data.has("ai"),
   };
 }
 
@@ -176,8 +172,6 @@ function updateControls() {
     button.disabled = !state.approved || !state.permissions.keyboard;
   });
 
-  aiPrompt.disabled = !state.approved || !state.permissions.ai;
-  aiButton.disabled = !state.approved || !state.permissions.ai;
   shareScreenButton.disabled = !state.approved || !state.permissions.screen;
   viewScreenButton.disabled = !state.approved || !state.permissions.screen;
 }
@@ -609,37 +603,6 @@ async function startViewerScreen() {
 
 shareScreenButton.addEventListener("click", startHostScreenShare);
 viewScreenButton.addEventListener("click", startViewerScreen);
-
-aiButton.addEventListener("click", async () => {
-  const prompt = aiPrompt.value.trim();
-  if (!prompt) {
-    addAudit("AI assist blocked", "Enter a request before queueing assistance");
-    return;
-  }
-
-  aiButton.disabled = true;
-  addAudit("AI assist queued", "Sending request to Groq Llama 70B");
-
-  try {
-    const response = await fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "AI request failed");
-    }
-
-    addAudit("AI assist response", data.message || "No response returned");
-    aiPrompt.value = "";
-  } catch (error) {
-    addAudit("AI assist failed", error.message);
-  } finally {
-    updateControls();
-  }
-});
 
 joinCode.value = state.code;
 updateControls();
