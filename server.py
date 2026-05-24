@@ -60,6 +60,7 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "RemoteDesk-Jazverse/1.0",
             },
             method="POST",
         )
