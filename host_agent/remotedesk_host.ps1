@@ -13,6 +13,44 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+function Normalize-Code($Value) {
+  return (($Value -as [string]) -replace "\s", "")
+}
+
+function Get-Session {
+  try {
+    return Invoke-RestMethod -Uri "$Server/api/session" -Method Get
+  } catch {
+    Write-Host ("Could not read website session: " + $_.Exception.Message)
+    return $null
+  }
+}
+
+function Test-SessionReady {
+  $status = Get-Session
+  if ($null -eq $status) {
+    return $false
+  }
+
+  $session = $status.session
+  if ((Normalize-Code $Code) -ne (Normalize-Code $session.code)) {
+    Write-Host ("Wrong or old code. Website currently shows: " + $session.code)
+    return $false
+  }
+
+  if (-not $session.approved) {
+    Write-Host "Code is correct, but session is not approved. Click Approve session on the website."
+    return $false
+  }
+
+  if (-not $session.permissions.screen) {
+    Write-Host "Session is approved, but Share screen is off. Enable Share screen and approve again."
+    return $false
+  }
+
+  return $true
+}
+
 function Send-Stop {
   try {
     Invoke-RestMethod -Uri "$Server/api/screen/stop" -Method Post -ContentType "application/json" -Body "{}" | Out-Null
@@ -65,6 +103,11 @@ Write-Host ""
 try {
   while ($true) {
     try {
+      if (-not (Test-SessionReady)) {
+        Start-Sleep -Milliseconds 1200
+        continue
+      }
+
       $frame = Capture-Frame
       $payload = @{
         code = $Code
@@ -74,7 +117,16 @@ try {
       Invoke-RestMethod -Uri "$Server/api/screen/frame" -Method Post -ContentType "application/json" -Body $payload | Out-Null
       Write-Host ("Frame sent at " + (Get-Date -Format "HH:mm:ss"))
     } catch {
-      Write-Host ("Waiting for approved screen session: " + $_.Exception.Message)
+      $message = $_.Exception.Message
+      try {
+        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $body = $reader.ReadToEnd() | ConvertFrom-Json
+        if ($body.error) {
+          $message = $body.error
+        }
+      } catch {
+      }
+      Write-Host ("Waiting for approved screen session: " + $message)
     }
 
     Start-Sleep -Milliseconds 900

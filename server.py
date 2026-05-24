@@ -74,14 +74,17 @@ def set_screen_frame(image, active):
         return dict(SCREEN_FRAME)
 
 
-def session_allows_screen(code):
+def screen_denial_reason(code):
     session = get_session()
-    return (
-        str(code).replace(" ", "") == session["code"].replace(" ", "")
-        and session.get("approved")
-        and not session.get("revoked")
-        and (session.get("permissions") or {}).get("screen")
-    )
+    if str(code).replace(" ", "") != session["code"].replace(" ", ""):
+        return "Code does not match the current website session"
+    if session.get("revoked"):
+        return "Session was revoked"
+    if not session.get("approved"):
+        return "Session is not approved yet"
+    if not (session.get("permissions") or {}).get("screen"):
+        return "Share screen permission is off"
+    return None
 
 
 class RemoteDeskHandler(BaseHTTPRequestHandler):
@@ -130,8 +133,9 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
             if body is None:
                 return
 
-            if not session_allows_screen(body.get("code", "")):
-                self.send_json({"error": "Approved screen session code is required"}, 403)
+            reason = screen_denial_reason(body.get("code", ""))
+            if reason:
+                self.send_json({"error": reason, "session": get_session()}, 403)
                 return
 
             image = str(body.get("image", ""))
