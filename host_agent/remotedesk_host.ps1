@@ -12,6 +12,16 @@ if ([string]::IsNullOrWhiteSpace($Code)) {
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class RemoteDeskInput {
+  [DllImport("user32.dll")]
+  public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+}
+"@
 
 function Normalize-Code($Value) {
   return (($Value -as [string]) -replace "\s", "")
@@ -85,13 +95,60 @@ function Capture-Frame {
     $stream = New-Object System.IO.MemoryStream
     try {
       $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-      return "data:image/jpeg;base64," + [Convert]::ToBase64String($stream.ToArray())
+      return @{
+        image = "data:image/jpeg;base64," + [Convert]::ToBase64String($stream.ToArray())
+        width = $bitmap.Width
+        height = $bitmap.Height
+      }
     } finally {
       $stream.Dispose()
     }
   } finally {
     $graphics.Dispose()
     $bitmap.Dispose()
+  }
+}
+
+function Send-Click($X, $Y) {
+  $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $screenX = [int]($bounds.Left + ($bounds.Width * [double]$X))
+  $screenY = [int]($bounds.Top + ($bounds.Height * [double]$Y))
+  [RemoteDeskInput]::SetCursorPos($screenX, $screenY) | Out-Null
+  [RemoteDeskInput]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 40
+  [RemoteDeskInput]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+}
+
+function Send-Key($Key) {
+  $map = @{
+    "Enter" = "{ENTER}"
+    "Backspace" = "{BACKSPACE}"
+    "Esc" = "{ESC}"
+    "Tab" = "{TAB}"
+    "Alt" = "%"
+    "Ctrl" = "^"
+  }
+  if ($map.ContainsKey($Key)) {
+    [System.Windows.Forms.SendKeys]::SendWait($map[$Key])
+  }
+}
+
+function Poll-Commands {
+  try {
+    $encoded = [Uri]::EscapeDataString($Code)
+    $result = Invoke-RestMethod -Uri "$Server/api/control/poll?code=$encoded" -Method Get
+    foreach ($command in $result.commands) {
+      if ($command.type -eq "click") {
+        Send-Click $command.x $command.y
+        Write-Host ("Mouse click received at " + (Get-Date -Format "HH:mm:ss"))
+      }
+      if ($command.type -eq "key") {
+        Send-Key $command.key
+        Write-Host ("Key received: " + $command.key)
+      }
+    }
+  } catch {
+    Write-Host ("Control poll failed: " + $_.Exception.Message)
   }
 }
 
@@ -111,10 +168,13 @@ try {
       $frame = Capture-Frame
       $payload = @{
         code = $Code
-        image = $frame
+        image = $frame.image
+        width = $frame.width
+        height = $frame.height
       } | ConvertTo-Json -Compress
 
       Invoke-RestMethod -Uri "$Server/api/screen/frame" -Method Post -ContentType "application/json" -Body $payload | Out-Null
+      Poll-Commands
       Write-Host ("Frame sent at " + (Get-Date -Format "HH:mm:ss"))
     } catch {
       $message = $_.Exception.Message
@@ -129,7 +189,7 @@ try {
       Write-Host ("Waiting for approved screen session: " + $message)
     }
 
-    Start-Sleep -Milliseconds 900
+    Start-Sleep -Milliseconds 350
   }
 } finally {
   Send-Stop

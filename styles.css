@@ -314,6 +314,7 @@ h2 {
   overflow: hidden;
   background: #0d1814;
   border: 1px solid #24352f;
+  touch-action: none;
 }
 
 .remote-video,
@@ -336,6 +337,32 @@ h2 {
 .remote-screen.live .screen-content,
 .remote-screen.frame-live .screen-content {
   opacity: 0;
+}
+
+.viewer:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  background: #07100d;
+}
+
+.viewer:fullscreen .remote-screen {
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+.viewer:fullscreen .remote-video,
+.viewer:fullscreen .remote-frame {
+  inset: 38px 0 0;
+  height: calc(100% - 38px);
+}
+
+.viewer:fullscreen .control-strip,
+.viewer:fullscreen .mobile-controls {
+  background: #f6f7f2;
 }
 
 .screen-top {

@@ -116,6 +116,22 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function sendControl(command) {
+  if (!state.approved) {
+    addAudit("Control blocked", "Approve the session before controlling the host");
+    return;
+  }
+
+  try {
+    await api("/api/control", {
+      method: "POST",
+      body: JSON.stringify({ code: state.code, ...command }),
+    });
+  } catch (error) {
+    addAudit("Control failed", error.message);
+  }
+}
+
 async function refreshSession() {
   try {
     const data = await api("/api/session");
@@ -292,6 +308,9 @@ controlButtons.forEach((button) => {
 
 keyboardButtons.forEach((button) => {
   button.addEventListener("click", () => {
+    if (state.permissions.keyboard) {
+      sendControl({ type: "key", key: button.dataset.key });
+    }
     addAudit("Keyboard input queued", `${button.dataset.key} sent to approved host agent`);
   });
 });
@@ -312,12 +331,13 @@ touchpad.addEventListener("pointerup", () => {
 });
 
 document.querySelector("#fullscreenButton").addEventListener("click", async () => {
-  if (!remoteScreen.requestFullscreen) {
+  const target = document.querySelector(".viewer");
+  if (!target.requestFullscreen) {
     addAudit("Full screen unavailable", "This browser does not expose full screen mode");
     return;
   }
 
-  await remoteScreen.requestFullscreen();
+  await target.requestFullscreen();
   addAudit("Full screen opened", "Remote viewer expanded on this device");
 });
 
@@ -377,7 +397,7 @@ function startFrameRelay(stream) {
     } catch (error) {
       addAudit("Frame relay failed", error.message);
     }
-  }, 700);
+  }, 350);
 }
 
 async function displayLatestFrame(logWhenWaiting = true) {
@@ -408,8 +428,29 @@ function startFrameViewer(logWhenWaiting = true) {
   displayLatestFrame(logWhenWaiting);
   framePollTimer = setInterval(() => {
     displayLatestFrame(false);
-  }, 900);
+  }, 350);
 }
+
+remoteScreen.addEventListener("pointerdown", (event) => {
+  if (!state.approved || !state.permissions.mouse) {
+    return;
+  }
+  if (!remoteScreen.classList.contains("frame-live") && !remoteScreen.classList.contains("live")) {
+    return;
+  }
+
+  const target = remoteFrame.getAttribute("src") ? remoteFrame : remoteScreen;
+  const rect = target.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / rect.width;
+  const y = (event.clientY - rect.top) / rect.height;
+
+  if (x < 0 || x > 1 || y < 0 || y > 1) {
+    return;
+  }
+
+  sendControl({ type: "click", x, y });
+  addAudit("Mouse click sent", `Screen position ${Math.round(x * 100)}%, ${Math.round(y * 100)}%`);
+});
 
 async function sendSignal(role, type, value) {
   return api("/api/session/signal", {
