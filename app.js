@@ -343,7 +343,7 @@ function stopFrameTimers() {
 async function postFrame(image) {
   return api("/api/screen/frame", {
     method: "POST",
-    body: JSON.stringify({ image }),
+    body: JSON.stringify({ code: state.code, image }),
   });
 }
 

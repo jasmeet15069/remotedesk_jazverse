@@ -74,6 +74,16 @@ def set_screen_frame(image, active):
         return dict(SCREEN_FRAME)
 
 
+def session_allows_screen(code):
+    session = get_session()
+    return (
+        str(code).replace(" ", "") == session["code"].replace(" ", "")
+        and session.get("approved")
+        and not session.get("revoked")
+        and (session.get("permissions") or {}).get("screen")
+    )
+
+
 class RemoteDeskHandler(BaseHTTPRequestHandler):
     server_version = "RemoteDeskAI/1.0"
 
@@ -118,6 +128,10 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
         if self.path == "/api/screen/frame":
             body = self.safe_read_json()
             if body is None:
+                return
+
+            if not session_allows_screen(body.get("code", "")):
+                self.send_json({"error": "Approved screen session code is required"}, 403)
                 return
 
             image = str(body.get("image", ""))
