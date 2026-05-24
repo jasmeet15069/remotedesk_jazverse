@@ -2,6 +2,7 @@ import json
 import os
 import random
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +14,8 @@ MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 SESSION_LOCK = threading.Lock()
 SESSION = None
+SCREEN_LOCK = threading.Lock()
+SCREEN_FRAME = {"image": None, "updatedAt": None, "active": False}
 
 
 def make_code():
@@ -63,6 +66,14 @@ def set_session(updates):
         return dict(SESSION)
 
 
+def set_screen_frame(image, active):
+    with SCREEN_LOCK:
+        SCREEN_FRAME["image"] = image
+        SCREEN_FRAME["active"] = active
+        SCREEN_FRAME["updatedAt"] = int(time.time() * 1000)
+        return dict(SCREEN_FRAME)
+
+
 class RemoteDeskHandler(BaseHTTPRequestHandler):
     server_version = "RemoteDeskAI/1.0"
 
@@ -100,7 +111,27 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/session/revoke":
             session = set_session({"approved": False, "joinRequested": False, "revoked": True})
+            set_screen_frame(None, False)
             self.send_json({"session": session})
+            return
+
+        if self.path == "/api/screen/frame":
+            body = self.safe_read_json()
+            if body is None:
+                return
+
+            image = str(body.get("image", ""))
+            if not image.startswith("data:image/jpeg;base64,"):
+                self.send_json({"error": "JPEG data URL is required"}, 400)
+                return
+
+            frame = set_screen_frame(image, True)
+            self.send_json({"ok": True, "updatedAt": frame["updatedAt"]})
+            return
+
+        if self.path == "/api/screen/stop":
+            frame = set_screen_frame(None, False)
+            self.send_json({"ok": True, "updatedAt": frame["updatedAt"]})
             return
 
         if self.path == "/api/session/signal":
@@ -211,6 +242,11 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
             self.send_json({"rtc": session.get("rtc") or {}})
             return
 
+        if self.path == "/api/screen":
+            with SCREEN_LOCK:
+                self.send_json({"screen": dict(SCREEN_FRAME)})
+            return
+
         self.send_json({"error": "Not found"}, 404)
 
     def safe_read_json(self):
@@ -222,7 +258,7 @@ class RemoteDeskHandler(BaseHTTPRequestHandler):
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
-        if length > 65536:
+        if length > 2097152:
             raise ValueError("Request body is too large")
 
         raw = self.rfile.read(length)

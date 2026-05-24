@@ -283,7 +283,8 @@ h2 {
   border: 1px solid #24352f;
 }
 
-.remote-video {
+.remote-video,
+.remote-frame {
   position: absolute;
   inset: 38px 0 0;
   z-index: 3;
@@ -294,11 +295,13 @@ h2 {
   object-fit: contain;
 }
 
-.remote-screen.live .remote-video {
+.remote-screen.live .remote-video,
+.remote-screen.frame-live .remote-frame {
   display: block;
 }
 
-.remote-screen.live .screen-content {
+.remote-screen.live .screen-content,
+.remote-screen.frame-live .screen-content {
   opacity: 0;
 }
 

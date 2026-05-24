@@ -27,9 +27,12 @@ const aiButton = document.querySelector("#aiButton");
 const shareScreenButton = document.querySelector("#shareScreenButton");
 const viewScreenButton = document.querySelector("#viewScreenButton");
 const remoteVideo = document.querySelector("#remoteVideo");
+const remoteFrame = document.querySelector("#remoteFrame");
 let lastServerStatus = "";
 let peerConnection = null;
 let signalPollTimer = null;
+let frameRelayTimer = null;
+let framePollTimer = null;
 let hostCandidateCount = 0;
 let viewerCandidateCount = 0;
 
@@ -326,6 +329,69 @@ function closePeerConnection() {
   }
 }
 
+function stopFrameTimers() {
+  if (frameRelayTimer) {
+    clearInterval(frameRelayTimer);
+    frameRelayTimer = null;
+  }
+  if (framePollTimer) {
+    clearInterval(framePollTimer);
+    framePollTimer = null;
+  }
+}
+
+async function postFrame(image) {
+  return api("/api/screen/frame", {
+    method: "POST",
+    body: JSON.stringify({ image }),
+  });
+}
+
+function startFrameRelay(stream) {
+  const sourceVideo = document.createElement("video");
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { alpha: false });
+
+  sourceVideo.srcObject = stream;
+  sourceVideo.muted = true;
+  sourceVideo.playsInline = true;
+  sourceVideo.play().catch(() => {});
+
+  frameRelayTimer = setInterval(async () => {
+    if (!sourceVideo.videoWidth || !sourceVideo.videoHeight) {
+      return;
+    }
+
+    const maxWidth = 960;
+    const scale = Math.min(1, maxWidth / sourceVideo.videoWidth);
+    canvas.width = Math.round(sourceVideo.videoWidth * scale);
+    canvas.height = Math.round(sourceVideo.videoHeight * scale);
+    context.drawImage(sourceVideo, 0, 0, canvas.width, canvas.height);
+
+    try {
+      await postFrame(canvas.toDataURL("image/jpeg", 0.58));
+    } catch (error) {
+      addAudit("Frame relay failed", error.message);
+    }
+  }, 700);
+}
+
+function startFrameViewer() {
+  stopFrameTimers();
+  framePollTimer = setInterval(async () => {
+    try {
+      const data = await api("/api/screen");
+      const screen = data.screen || {};
+      if (screen.active && screen.image) {
+        remoteFrame.src = screen.image;
+        remoteScreen.classList.add("frame-live");
+      }
+    } catch (error) {
+      addAudit("Live preview failed", error.message);
+    }
+  }, 900);
+}
+
 async function sendSignal(role, type, value) {
   return api("/api/session/signal", {
     method: "POST",
@@ -366,6 +432,7 @@ async function startHostScreenShare() {
   }
 
   closePeerConnection();
+  stopFrameTimers();
   hostCandidateCount = 0;
   viewerCandidateCount = 0;
 
@@ -377,14 +444,19 @@ async function startHostScreenShare() {
 
     remoteVideo.srcObject = stream;
     remoteScreen.classList.add("live");
+    startFrameRelay(stream);
     peerConnection = new RTCPeerConnection(rtcConfig);
 
     stream.getTracks().forEach((track) => {
       peerConnection.addTrack(track, stream);
       track.addEventListener("ended", () => {
         closePeerConnection();
+        stopFrameTimers();
+        api("/api/screen/stop", { method: "POST", body: "{}" }).catch(() => {});
         remoteVideo.srcObject = null;
+        remoteFrame.removeAttribute("src");
         remoteScreen.classList.remove("live");
+        remoteScreen.classList.remove("frame-live");
         addAudit("Screen share stopped", "The computer stopped sharing its screen");
       });
     });
@@ -427,6 +499,7 @@ async function startViewerScreen() {
   }
 
   closePeerConnection();
+  startFrameViewer();
   hostCandidateCount = 0;
   viewerCandidateCount = 0;
 
@@ -435,7 +508,7 @@ async function startViewerScreen() {
     const rtc = data.rtc || {};
 
     if (!rtc.offer) {
-      addAudit("No live screen yet", "Click Start screen share on the computer first");
+      addAudit("Live preview started", "Waiting for frames from the computer");
       return;
     }
 
