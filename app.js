@@ -32,6 +32,7 @@ let frameRelayTimer = null;
 let framePollTimer = null;
 let hostCandidateCount = 0;
 let viewerCandidateCount = 0;
+let latestScreenSize = { width: 0, height: 0 };
 
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -326,13 +327,23 @@ touchpad.addEventListener("pointerup", () => {
 
 document.querySelector("#fullscreenButton").addEventListener("click", async () => {
   const target = document.querySelector(".viewer");
-  if (!target.requestFullscreen) {
-    addAudit("Full screen unavailable", "This browser does not expose full screen mode");
-    return;
+  document.body.classList.toggle("viewer-focus");
+
+  if (target.requestFullscreen && !document.fullscreenElement) {
+    try {
+      await target.requestFullscreen();
+    } catch (error) {
+      addAudit("Full screen fallback", "Using mobile viewer mode");
+    }
   }
 
-  await target.requestFullscreen();
-  addAudit("Full screen opened", "Remote viewer expanded on this device");
+  addAudit("Viewer mode toggled", "Remote viewer expanded on this device");
+});
+
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && document.body.classList.contains("viewer-focus")) {
+    document.body.classList.remove("viewer-focus");
+  }
 });
 
 function closePeerConnection() {
@@ -399,6 +410,10 @@ async function displayLatestFrame(logWhenWaiting = true) {
     const data = await api("/api/screen");
     const screen = data.screen || {};
     if (screen.active && screen.image) {
+      latestScreenSize = {
+        width: Number(screen.width || 0),
+        height: Number(screen.height || 0),
+      };
       remoteFrame.src = screen.image;
       remoteScreen.classList.add("frame-live");
       return true;
@@ -435,8 +450,27 @@ remoteScreen.addEventListener("pointerdown", (event) => {
 
   const target = remoteFrame.getAttribute("src") ? remoteFrame : remoteScreen;
   const rect = target.getBoundingClientRect();
-  const x = (event.clientX - rect.left) / rect.width;
-  const y = (event.clientY - rect.top) / rect.height;
+  let activeLeft = rect.left;
+  let activeTop = rect.top;
+  let activeWidth = rect.width;
+  let activeHeight = rect.height;
+
+  if (latestScreenSize.width > 0 && latestScreenSize.height > 0) {
+    const imageRatio = latestScreenSize.width / latestScreenSize.height;
+    const boxRatio = rect.width / rect.height;
+    if (boxRatio > imageRatio) {
+      activeHeight = rect.height;
+      activeWidth = activeHeight * imageRatio;
+      activeLeft = rect.left + (rect.width - activeWidth) / 2;
+    } else {
+      activeWidth = rect.width;
+      activeHeight = activeWidth / imageRatio;
+      activeTop = rect.top + (rect.height - activeHeight) / 2;
+    }
+  }
+
+  const x = (event.clientX - activeLeft) / activeWidth;
+  const y = (event.clientY - activeTop) / activeHeight;
 
   if (x < 0 || x > 1 || y < 0 || y > 1) {
     return;
