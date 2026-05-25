@@ -32,6 +32,9 @@ const leftClickPadButton = $("leftClickPadButton");
 const rightClickPadButton = $("rightClickPadButton");
 const fpsRange = $("fpsRange");
 const fpsLabel = $("fpsLabel");
+const zoomInButton = $("zoomInButton");
+const zoomOutButton = $("zoomOutButton");
+const zoomResetButton = $("zoomResetButton");
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 let ws = null;
@@ -435,9 +438,11 @@ function setViewerFocus(enabled) {
   if (enabled) {
     document.activeElement?.blur?.();
     updateViewportHeight();
+    resetViewZoom();
     document.querySelector(".viewer")?.requestFullscreen?.().catch(() => {});
     screen.orientation?.lock?.("landscape").catch(() => {});
   } else {
+    resetViewZoom();
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
     screen.orientation?.unlock?.();
   }
@@ -469,6 +474,122 @@ document.addEventListener("fullscreenchange", () => {
 window.addEventListener("resize", updateViewportHeight);
 window.addEventListener("orientationchange", () => setTimeout(updateViewportHeight, 250));
 
+const viewZoom = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  pointers: new Map(),
+  startDistance: 0,
+  startScale: 1,
+  lastPan: null,
+  lastTap: 0,
+};
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function applyViewZoom() {
+  viewZoom.scale = clamp(viewZoom.scale, 1, 4);
+  if (viewZoom.scale === 1) {
+    viewZoom.x = 0;
+    viewZoom.y = 0;
+  }
+  const limitX = Math.round((window.innerWidth * (viewZoom.scale - 1)) / 2);
+  const limitY = Math.round((window.innerHeight * (viewZoom.scale - 1)) / 2);
+  viewZoom.x = clamp(viewZoom.x, -limitX, limitX);
+  viewZoom.y = clamp(viewZoom.y, -limitY, limitY);
+  const transform = `translate3d(${viewZoom.x}px, ${viewZoom.y}px, 0) scale(${viewZoom.scale})`;
+  remoteVideo.style.transform = transform;
+  remoteFrame.style.transform = transform;
+  remoteVideo.style.transformOrigin = "center center";
+  remoteFrame.style.transformOrigin = "center center";
+  if (zoomResetButton) zoomResetButton.textContent = `${viewZoom.scale.toFixed(1).replace(".0", "")}x`;
+}
+
+function resetViewZoom() {
+  viewZoom.scale = 1;
+  viewZoom.x = 0;
+  viewZoom.y = 0;
+  viewZoom.pointers.clear();
+  viewZoom.lastPan = null;
+  applyViewZoom();
+}
+
+function stepViewZoom(delta) {
+  viewZoom.scale = clamp(Math.round((viewZoom.scale + delta) * 10) / 10, 1, 4);
+  applyViewZoom();
+}
+
+function pointerDistance() {
+  const points = [...viewZoom.pointers.values()];
+  if (points.length < 2) return 0;
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
+
+function handleZoomPointerDown(e) {
+  if (!document.body.classList.contains("viewer-focus")) return false;
+  viewZoom.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (viewZoom.pointers.size === 2) {
+    activePointerId = null;
+    viewZoom.startDistance = pointerDistance();
+    viewZoom.startScale = viewZoom.scale;
+    e.preventDefault();
+    return true;
+  }
+  if (viewZoom.scale > 1) {
+    viewZoom.lastPan = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
+    return true;
+  }
+  return false;
+}
+
+function handleZoomPointerMove(e) {
+  if (!document.body.classList.contains("viewer-focus")) return false;
+  if (!viewZoom.pointers.has(e.pointerId)) return false;
+  viewZoom.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (viewZoom.pointers.size >= 2 && viewZoom.startDistance > 0) {
+    viewZoom.scale = viewZoom.startScale * (pointerDistance() / viewZoom.startDistance);
+    applyViewZoom();
+    e.preventDefault();
+    return true;
+  }
+  if (viewZoom.scale > 1 && viewZoom.lastPan) {
+    viewZoom.x += e.clientX - viewZoom.lastPan.x;
+    viewZoom.y += e.clientY - viewZoom.lastPan.y;
+    viewZoom.lastPan = { x: e.clientX, y: e.clientY };
+    applyViewZoom();
+    e.preventDefault();
+    return true;
+  }
+  return false;
+}
+
+function handleZoomPointerUp(e) {
+  if (!document.body.classList.contains("viewer-focus")) return false;
+  const hadPointer = viewZoom.pointers.delete(e.pointerId);
+  viewZoom.lastPan = null;
+  if (viewZoom.pointers.size < 2) viewZoom.startDistance = 0;
+  const now = Date.now();
+  if (hadPointer && now - viewZoom.lastTap < 300) {
+    if (viewZoom.scale > 1) resetViewZoom();
+    else {
+      viewZoom.scale = 2;
+      applyViewZoom();
+    }
+    viewZoom.lastTap = 0;
+    e.preventDefault();
+    return true;
+  }
+  viewZoom.lastTap = now;
+  return hadPointer && viewZoom.scale > 1;
+}
+
+zoomInButton?.addEventListener("click", () => stepViewZoom(0.25));
+zoomOutButton?.addEventListener("click", () => stepViewZoom(-0.25));
+zoomResetButton?.addEventListener("click", resetViewZoom);
+
 // ── Remote screen pointer events ──────────────────────────────────────────────
 let activePointerId = null;
 let lastMoveSent = 0;
@@ -498,6 +619,7 @@ function pointerToRemote(e) {
 }
 
 remoteScreen.addEventListener("pointerdown", (e) => {
+  if (handleZoomPointerDown(e)) return;
   const p = pointerToRemote(e);
   if (!p) return;
   e.preventDefault();
@@ -507,6 +629,7 @@ remoteScreen.addEventListener("pointerdown", (e) => {
 });
 
 remoteScreen.addEventListener("pointermove", (e) => {
+  if (handleZoomPointerMove(e)) return;
   if (activePointerId !== e.pointerId) return;
   const now = Date.now();
   if (now - lastMoveSent < 28) return; // ~35fps max for mouse moves
@@ -518,6 +641,7 @@ remoteScreen.addEventListener("pointermove", (e) => {
 });
 
 remoteScreen.addEventListener("pointerup", (e) => {
+  if (handleZoomPointerUp(e)) return;
   if (activePointerId !== e.pointerId) return;
   const p = pointerToRemote(e);
   activePointerId = null;
@@ -528,6 +652,8 @@ remoteScreen.addEventListener("pointerup", (e) => {
 });
 
 remoteScreen.addEventListener("pointercancel", (e) => {
+  viewZoom.pointers.delete(e.pointerId);
+  viewZoom.lastPan = null;
   if (activePointerId === e.pointerId) activePointerId = null;
 });
 

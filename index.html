@@ -7,9 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>RemoteDesk</title>
-    <link rel="stylesheet" href="styles.css?v=20260525-2" />
+    <link rel="stylesheet" href="styles.css?v=20260525-3" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
-    <script src="app.js?v=20260525-2" defer></script>
+    <script src="app.js?v=20260525-3" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -161,6 +161,16 @@
             <button class="tool" id="viewScreenButton" type="button" data-action="screen">
               <i data-lucide="monitor-play"></i>
               <span>View</span>
+            </button>
+          </div>
+
+          <div class="zoom-controls" aria-label="Screen zoom controls">
+            <button type="button" id="zoomOutButton" aria-label="Zoom out">
+              <i data-lucide="minus"></i>
+            </button>
+            <button type="button" id="zoomResetButton" aria-label="Reset zoom">1x</button>
+            <button type="button" id="zoomInButton" aria-label="Zoom in">
+              <i data-lucide="plus"></i>
             </button>
           </div>
 

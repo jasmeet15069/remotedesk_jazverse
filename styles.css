@@ -536,6 +536,10 @@ button:disabled {
   background: var(--surface);
   flex-shrink: 0;
 }
+
+.zoom-controls {
+  display: none;
+}
 .tool {
   flex: 1;
   flex-direction: column;
@@ -770,6 +774,35 @@ body.viewer-focus .control-strip {
   backdrop-filter: blur(8px);
 }
 
+body.viewer-focus .zoom-controls {
+  position: absolute;
+  right: 8px;
+  top: calc(env(safe-area-inset-top, 0px) + 54px);
+  z-index: 36;
+  display: flex;
+  gap: .35rem;
+  padding: .25rem;
+  border: 1px solid rgba(59,130,246,.3);
+  border-radius: 8px;
+  background: rgba(19,23,29,.88);
+  backdrop-filter: blur(8px);
+}
+
+body.viewer-focus .zoom-controls button {
+  width: 38px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-bright);
+}
+
+body.viewer-focus .zoom-controls svg {
+  width: 16px;
+  height: 16px;
+}
+
 body.viewer-focus .mobile-controls {
   position: absolute;
   left: 50%;
@@ -875,6 +908,11 @@ body.viewer-focus .virtual-keyboard {
     min-height: 40px;
   }
 
+  body.viewer-focus .zoom-controls {
+    top: calc(env(safe-area-inset-top, 0px) + 46px);
+    right: 6px;
+  }
+
   body.viewer-focus .control-strip {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
     min-height: 46px;
@@ -943,6 +981,11 @@ body.viewer-focus .remote-screen::after {
     min-height: 50px;
   }
 
+  body.viewer-focus .zoom-controls {
+    top: calc(env(safe-area-inset-top, 0px) + 50px);
+    right: 6px;
+  }
+
   body.viewer-focus .tool {
     min-width: 0;
     padding: .45rem .1rem;
@@ -980,6 +1023,10 @@ body.viewer-focus .remote-screen::after {
     width: min(520px, calc(100vw - 16px));
     right: auto;
     border-bottom-right-radius: 8px;
+  }
+
+  body.viewer-focus .zoom-controls {
+    right: 8px;
   }
 
   body.viewer-focus .control-strip {
